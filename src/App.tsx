@@ -269,7 +269,6 @@ export default function App() {
 
   // Playback Export config builder parameters
   const [exportParams, setExportParams] = useState({
-        
     status: "",
     limit: "",
   });
@@ -1093,7 +1092,7 @@ export default function App() {
       showFeedback("info", "请先选择需要编辑的直播线路");
       return;
     }
-    setBatchSourceForm({ isp: "" });
+    // batch form initialization logic removed if it only had isp
     setIsBatchSourceModalOpen(true);
   };
 
@@ -1783,7 +1782,7 @@ export default function App() {
 
   const getExportQueries = () => {
     const parts = [];
-    if (false) parts.push(`isp=${encodeURIComponent(false)}`);
+    
     
     if (exportParams.status) parts.push(`status=${encodeURIComponent(exportParams.status)}`);
     if (exportParams.limit) parts.push(`limit=${encodeURIComponent(exportParams.limit)}`);
@@ -2752,13 +2751,7 @@ export default function App() {
                                       <div className="flex items-center gap-2">
                                         <span className="font-bold text-slate-400 font-mono select-none">#{index + 1}</span>
                                         
-                                        <span className={`font-semibold px-2 py-0.5 rounded text-[10px] ${
-                                          src.isp === "电信" ? "bg-blue-50 text-blue-700" : 
-                                          src.isp === "移动" ? "bg-green-50 text-green-700" : 
-                                          src.isp === "联通" ? "bg-orange-50 text-orange-700" : "bg-slate-100 text-slate-600"
-                                        }`}>
-                                          {src.isp}
-                                        </span>
+                                        
                                         
                                         {/* Connectivity Latency Status Pill */}
                                         {src.status === "active" && (
@@ -3217,7 +3210,7 @@ export default function App() {
                       <div className="flex flex-wrap gap-2">
                         <button
                           onClick={() => {
-                            setBatchGlobalSourceForm({ isp: "", status: "" });
+                            setBatchGlobalSourceForm({ status: "" });
                             setIsBatchGlobalSourceModalOpen(true);
                           }}
                           className="bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold px-4 py-2.5 rounded-xl transition shadow-md shadow-indigo-500/10 cursor-pointer flex items-center gap-1.5"
@@ -3334,16 +3327,7 @@ export default function App() {
                                       </button>
                                     </div>
                                   </td>
-                                  <td className="py-3.5 px-3">
-                                    <span className={`inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-black border ${
-                                      item.isp === "电信" ? "bg-sky-50 text-sky-700 border-sky-100" :
-                                      item.isp === "联通" ? "bg-orange-50 text-orange-700 border-orange-100" :
-                                      item.isp === "移动" ? "bg-emerald-50 text-emerald-700 border-emerald-100" :
-                                      item.isp === "广电" ? "bg-purple-50 text-purple-700 border-purple-100" : "bg-slate-50 text-slate-600 border-slate-150"
-                                    }`}>
-                                      {item.isp || "BGP"}
-                                    </span>
-                                  </td>
+                                  
                                   
                                   <td className="py-3.5 px-3">
                                     <div className="flex items-center gap-2">
@@ -3849,58 +3833,7 @@ export default function App() {
               </div>
 
               {/* API settings dynamic builder */}
-              <div className="grid grid-cols-1 lg:grid-cols-3 gap-6" id="export_builder_grid">
-                
-                {/* 1. Filtering controls pane */}
-                <div className="bg-white p-6 rounded-2xl border border-slate-200 space-y-4" id="api_filters_card">
-                  <h3 className="font-bold text-slate-800 text-sm">定制 API 过滤条件</h3>
-                  
-                  <div className="space-y-4 text-xs font-semibold text-slate-600">
-                    <div className="space-y-1.5">
-                      <label>网络运营商 (ISP Filter)</label>
-                      <select 
-                        value={false}
-                        onChange={(e) => setExportParams({...exportParams})}
-                        className="w-full text-xs p-2.5 border border-slate-200 rounded-xl bg-slate-50 focus:outline-none"
-                      >
-                        <option value="">全部包含 (电信、移动、联通、BGP、其它)</option>
-                        <option value="电信">仅拉取 ━ 中国电信线路</option>
-                        <option value="联通">仅拉取 ━ 中国联通线路</option>
-                        <option value="移动">仅拉取 ━ 中国移动线路</option>
-                        <option value="广电">仅拉取 ━ 广电专线</option>
-                        <option value="BGP">BGP / 多网线路优先</option>
-                      </select>
-                    </div>
-
-                    <div className="space-y-1.5">
-                      <label>检测线路可用状态 (Status Filter)</label>
-                      <select 
-                        value={exportParams.status}
-                        onChange={(e) => setExportParams({...exportParams, status: e.target.value})}
-                        className="w-full text-xs p-2.5 border border-slate-200 rounded-xl bg-slate-50 focus:outline-none"
-                      >
-                        <option value="">全部输出 (包含未测试或异常的线路)</option>
-                        <option value="active">严格筛选 (只输出高并发测速在线 active 的绿色线路)</option>
-                      </select>
-                    </div>
-
-                    
-
-                    <div className="space-y-1.5">
-                      <label>单频道最大备线输出限制 (Number limit)</label>
-                      <input 
-                        type="number"
-                        value={exportParams.limit}
-                        onChange={(e) => setExportParams({...exportParams, limit: e.target.value})}
-                        placeholder="不限制"
-                        className="w-full text-xs p-2.5 border border-slate-200 rounded-xl focus:outline-none"
-                      />
-                    </div>
-                  </div>
-                </div>
-
-                {/* 2. Export URL list display */}
-                <div className="lg:col-span-2 bg-white p-6 rounded-2xl border border-slate-200 flex flex-col justify-between" id="api_endpoints_list_card">
+              <div className="bg-white p-6 rounded-2xl border border-slate-200 flex flex-col justify-between" id="api_endpoints_list_card">
                   <div className="space-y-4">
                     <h3 className="font-bold text-slate-800 text-sm">生成的专属播放和 EPG 链路</h3>
                     
@@ -4026,9 +3959,7 @@ export default function App() {
                 </div>
 
               </div>
-            </div>
           )}
-
           {/* VIEW: EPG MANAGEMENT & COLLOCATION */}
           {activeTab === "epg" && (
             <div className="space-y-8 animate-fade-in" id="tab_epg_view">

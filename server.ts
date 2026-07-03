@@ -18,7 +18,7 @@ function getPlayableSources(sources: any[]) {
 interface LiveSource {
   id: string;
   url: string;
-      status: "active" | "inactive" | "unknown" | "checking";
+  status: "active" | "inactive" | "unknown" | "checking";
   latency?: number;
   lastChecked?: string;
     }
@@ -121,10 +121,9 @@ function initSqlite() {
       id TEXT PRIMARY KEY,
       channelId TEXT NOT NULL,
       url TEXT NOT NULL,
-                  status TEXT,
+      status TEXT,
       latency INTEGER,
-      lastChecked TEXT,
-            
+      lastChecked TEXT
     );
     CREATE TABLE IF NOT EXISTS sync_configs (
       id TEXT PRIMARY KEY,
@@ -588,8 +587,6 @@ function loadData() {
         const src: LiveSource = {
           id: row.id,
           url: row.url,
-
-          
           status: row.status || "unknown",
           latency: row.latency !== null ? row.latency : undefined,
           lastChecked: row.lastChecked || undefined,
@@ -769,7 +766,14 @@ function saveData() {
 
         if (ch.sources && ch.sources.length > 0) {
           for (const s of ch.sources) {
-            insertSource.run(s.id, ch.id, s.url, s.status || "unknown", s.latency !== undefined ? s.latency : null, s.lastChecked || "");
+            insertSource.run(
+          s.id,
+          ch.id,
+          s.url,
+          s.status || "unknown",
+          s.latency !== undefined ? s.latency : null,
+          s.lastChecked || ""
+        );
           }
         }
       }
@@ -891,7 +895,7 @@ loadDefaultAliases();
 loadData();
 checkAndPerformDailyBackup();
 
-// Utility function to map URL and parse ISP/Province
+
 
 
 // URL Testing Engine
@@ -1506,10 +1510,8 @@ async function performSync(config: SyncConfig, force = false) {
                 }
               });
             }
-            if (typeof currentInfo !== "undefined" && currentInfo && currentInfo.logo && !isInvalidLogo(currentInfo.logo)) {
-              if (isInvalidLogo(channel.logo)) {
-                channel.logo = currentInfo.logo;
-              }
+            if (currentInfo?.logo && !isInvalidLogo(currentInfo.logo)) {
+              channel.logo = currentInfo.logo;
             }
 
           }
@@ -1520,7 +1522,6 @@ async function performSync(config: SyncConfig, force = false) {
             channel.sources.push({
               id: "src_" + Math.random().toString(36).substring(2, 10),
               url,
-                            
               status: "unknown",
             });
             importedSourcesCount++;
@@ -1619,7 +1620,6 @@ async function performSync(config: SyncConfig, force = false) {
             channel.sources.push({
               id: "src_" + Math.random().toString(36).substring(2, 10),
               url,
-                            
               status: "unknown",
             });
             importedSourcesCount++;
@@ -1700,7 +1700,7 @@ async function runCronJob(job: any) {
         if (success) successCount++;
       }
       insertLog.run(logId, job.id, nowStr, "success", `成功同步 ${successCount}/${activeSources.length} 个 EPG 源`);
-    } else if (job.id === "job_github_import") {
+        } else if (job.id === "job_github_import") {
       let successCount = 0;
       const activeConfigs = syncConfigs.filter((c) => !c.disabled);
       for (const config of activeConfigs) {
@@ -1708,6 +1708,51 @@ async function runCronJob(job: any) {
         if (success) successCount++;
       }
       insertLog.run(logId, job.id, nowStr, "success", `成功同步 ${successCount}/${activeConfigs.length} 个 GitHub 订阅源`);
+    } else if (job.id === "job_check_lines") {
+      let targetSources: { id: string; channelId: string; url: string }[] = [];
+      channels.forEach((channel) => {
+        channel.sources.forEach((source) => {
+          targetSources.push({
+            id: source.id,
+            channelId: channel.id,
+            url: source.url,
+          });
+        });
+      });
+      if (targetSources.length > 0) {
+        if (testStatus.status === "running") {
+           insertLog.run(logId, job.id, nowStr, "failed", "系统当前已有正在运行的批量测速任务，本次跳过");
+        } else {
+           await runConcurrentTest(targetSources, 16);
+           insertLog.run(logId, job.id, nowStr, "success", `成功检测了 ${targetSources.length} 个直播源线路`);
+        }
+      } else {
+        insertLog.run(logId, job.id, nowStr, "success", "没有发现任何直播源可供检测");
+      }
+    } else if (job.id === "job_system_backup") {
+      const nowD = new Date();
+      const pad = (n: number) => String(n).padStart(2, "0");
+      const timestamp = `${nowD.getFullYear()}${pad(nowD.getMonth() + 1)}${pad(nowD.getDate())}_${pad(nowD.getHours())}${pad(nowD.getMinutes())}${pad(nowD.getSeconds())}`;
+      const filename = `radio_data_backup_auto_${timestamp}.json`;
+      
+      const backupContent = {
+        groups,
+        channels,
+        syncConfigs,
+        epgSources,
+        metadata: {
+          timestamp: nowD.toISOString(),
+          channelCount: channels.length,
+          groupCount: groups.length
+        }
+      };
+      
+      const fsBackup = require('fs');
+      const pathBackup = require('path');
+      const filePath = pathBackup.join(DATA_DIR, filename);
+      fsBackup.writeFileSync(filePath, JSON.stringify(backupContent, null, 2), "utf-8");
+      
+      insertLog.run(logId, job.id, nowStr, "success", `成功创建系统自动硬备份: ${filename}`);
     } else {
       insertLog.run(logId, job.id, nowStr, "failed", "未知的定时任务 ID");
     }
@@ -2532,8 +2577,6 @@ async function startServer() {
     let updatedCount = 0;
     channel.sources.forEach((s) => {
       if (sourceIds.includes(s.id)) {
-        
-        
         updatedCount++;
       }
     });
@@ -2557,9 +2600,7 @@ async function startServer() {
         if (sourceIds.includes(s.id)) {
           
           
-          if (status !== undefined && status !== null && status !== "") {
-            s.status = status;
-          }
+          if (status !== undefined && status !== null && status !== "") s.status = status;
           updatedCount++;
         }
       });
@@ -3421,10 +3462,6 @@ ${JSON.stringify(scoredList.map(c => ({ epgId: c.epgId, names: c.displayNames, s
   app.get("/api/export/m3u", async (req, res) => {
     const { category, status, limit } = req.query;
     
-
-    
-    
-
     const playlistRows: string[] = ["#EXTM3U"];
     const maxLimit = limit ? parseInt(String(limit)) : 10;
 
@@ -3436,9 +3473,14 @@ ${JSON.stringify(scoredList.map(c => ({ epgId: c.epgId, names: c.displayNames, s
     }
     
     const groups = db.prepare(catQuery).all(...queryParams) as Group[];
+    const allChannels = db.prepare("SELECT * FROM channels ORDER BY sortOrder ASC").all() as Channel[];
+    
     groups.forEach((group) => {
       const groupName = group.name;
-      const channels = db.prepare("SELECT * FROM channels WHERE groupId = ? ORDER BY sortOrder ASC").all(group.id) as Channel[];
+      const channels = allChannels.filter(c => {
+        try { const gids = JSON.parse(c.groupIds as unknown as string); return gids.includes(group.id); } catch(e) { return false; }
+      });
+      
       channels.forEach((channel) => {
         const sources = db.prepare("SELECT * FROM sources WHERE channelId = ?").all(channel.id) as LiveSource[];
         let processedSources = getPlayableSources(sources);
@@ -3447,6 +3489,7 @@ ${JSON.stringify(scoredList.map(c => ({ epgId: c.epgId, names: c.displayNames, s
         processedSources.forEach((source) => {
           if (count >= maxLimit) return;
           if (status && source.status !== String(status)) return;
+          
           
           const suffix = "";
           const channelDisplayName = `${channel.name}${suffix}`;
@@ -3466,10 +3509,6 @@ ${JSON.stringify(scoredList.map(c => ({ epgId: c.epgId, names: c.displayNames, s
   app.get("/api/export/txt", async (req, res) => {
     const { category, status, limit } = req.query;
     
-
-    
-    
-
     const maxLimit = limit ? parseInt(String(limit)) : 10;
     const exportMap = new Map<string, string[]>();
 
@@ -3481,9 +3520,14 @@ ${JSON.stringify(scoredList.map(c => ({ epgId: c.epgId, names: c.displayNames, s
     }
     
     const groups = db.prepare(catQuery).all(...queryParams) as Group[];
+    const allChannels = db.prepare("SELECT * FROM channels ORDER BY sortOrder ASC").all() as Channel[];
+    
     groups.forEach((group) => {
       const groupName = group.name;
-      const channels = db.prepare("SELECT * FROM channels WHERE groupId = ? ORDER BY sortOrder ASC").all(group.id) as Channel[];
+      const channels = allChannels.filter(c => {
+        try { const gids = JSON.parse(c.groupIds as unknown as string); return gids.includes(group.id); } catch(e) { return false; }
+      });
+      
       channels.forEach((channel) => {
         const sources = db.prepare("SELECT * FROM sources WHERE channelId = ?").all(channel.id) as LiveSource[];
         let processedSources = getPlayableSources(sources);
@@ -3492,6 +3536,7 @@ ${JSON.stringify(scoredList.map(c => ({ epgId: c.epgId, names: c.displayNames, s
         processedSources.forEach((source) => {
           if (count >= maxLimit) return;
           if (status && source.status !== String(status)) return;
+          
           
           const catName = groupName;
           if (!exportMap.has(catName)) {

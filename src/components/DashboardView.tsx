@@ -11,7 +11,7 @@ import {
   CheckSquare, 
   Zap,
   RotateCw
-} from "lucide-react";
+, Globe2 } from "lucide-react";
 import { Channel, LiveSource, SyncConfig } from "../types";
 
 interface DashboardProps {
@@ -37,31 +37,18 @@ export default function DashboardView({
   let inactiveSources = 0;
   let unknownSources = 0;
 
-  
-  const provinceCounts: Record<string, number> = {};
-
   channels.forEach((channel) => {
     totalSources += channel.sources.length;
-    channel.sources.forEach((s) => {
-      // Status
-      if (s.status === "active") activeSources++;
-      else if (s.status === "inactive") inactiveSources++;
-      else unknownSources++;
-
-      
-
-      // Province
-      const prov = s.province || "未知";
-      provinceCounts[prov] = (provinceCounts[prov] || 0) + 1;
-    });
+    if (channel.sources) {
+      channel.sources.forEach((s) => {
+        if (s.status === "active") activeSources++;
+        else if (s.status === "inactive") inactiveSources++;
+        else unknownSources++;
+      });
+    }
   });
-
+  
   const activeRatio = totalSources > 0 ? Math.round((activeSources / totalSources) * 100) : 0;
-
-  // Sorted list of top provinces
-  const topProvinces = Object.entries(provinceCounts)
-    .sort((a, b) => b[1] - a[1])
-    .slice(0, 5);
 
   return (
     <div className="space-y-8 animate-fade-in" id="dashboard_view">
