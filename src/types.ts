@@ -8,16 +8,19 @@ export interface LiveSource {
   clientProvinceReported?: string;
 }
 
-export interface Group {
+export interface Tag {
   id: string;
   name: string;
 }
+
+export type Group = Tag;
 
 export interface Channel {
   id: string;
   name: string;
   logo: string;
-  groupIds: string[];
+  tagIds?: string[];
+  groupIds?: string[];
   alias: string[];
   epgId: string;
   sources: LiveSource[];

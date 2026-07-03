@@ -23,16 +23,18 @@ interface LiveSource {
   lastChecked?: string;
     }
 
-interface Group {
+interface Tag {
   id: string;
   name: string;
 }
+type Group = Tag;
 
 interface Channel {
   id: string;
   name: string;
   logo: string;
-  groupIds: string[];
+  tagIds?: string[];
+  groupIds?: string[];
   alias: string[];
   epgId: string;
   sources: LiveSource[];
@@ -85,7 +87,7 @@ if (!fs.existsSync(DATA_DIR)) {
 }
 
 // In-Memory Database State
-let groups: Group[] = [];
+let tags: Tag[] = [];
 let channels: Channel[] = [];
 let syncConfigs: SyncConfig[] = [];
 let epgSources: EpgSource[] = [];
@@ -105,7 +107,7 @@ function initSqlite() {
 
   // Create tables structured for fast access
   db.exec(`
-    CREATE TABLE IF NOT EXISTS groups (
+    CREATE TABLE IF NOT EXISTS tags (
       id TEXT PRIMARY KEY,
       name TEXT NOT NULL,
       sortOrder INTEGER DEFAULT 0
@@ -115,7 +117,7 @@ function initSqlite() {
       name TEXT NOT NULL,
       logo TEXT,
       sortOrder INTEGER DEFAULT 0,
-      groupIds TEXT,
+      tagIds TEXT,
       alias TEXT,
       epgId TEXT
     );
@@ -172,17 +174,51 @@ function initSqlite() {
     );
   `);
 
+  // 1. Migrate groups table to tags if it exists
+  try {
+    const tableCheck = db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='groups'").get();
+    if (tableCheck) {
+      console.log("[Migration] SQLite 'groups' table found, renaming/migrating to 'tags'...");
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS tags (
+          id TEXT PRIMARY KEY,
+          name TEXT NOT NULL,
+          sortOrder INTEGER DEFAULT 0
+        );
+      `);
+      db.exec("INSERT OR IGNORE INTO tags (id, name, sortOrder) SELECT id, name, sortOrder FROM groups;");
+      db.exec("DROP TABLE groups;");
+      console.log("[Migration] SQLite 'groups' to 'tags' migration successfully complete!");
+    }
+  } catch (err) {
+    console.error("[Migration Error] failed to rename/migrate groups to tags:", err.message);
+  }
+
+  // 2. Add tagIds column to channels if missing, and copy/migrate groupIds
+  try {
+    db.prepare("SELECT tagIds FROM channels LIMIT 1").get();
+  } catch (err) {
+    console.log("[Migration] SQLite 'channels.tagIds' column missing, performing migration...");
+    try {
+      db.exec("ALTER TABLE channels ADD COLUMN tagIds TEXT");
+      db.exec("UPDATE channels SET tagIds = groupIds");
+      console.log("[Migration] SQLite 'tagIds' column added and populated!");
+    } catch (e) {
+      console.error("[Migration Error] failed to migrate tagIds on channels:", e.message);
+    }
+  }
+
   // Ensure optimized indices for speedy lookups
   db.exec(`
     CREATE INDEX IF NOT EXISTS idx_sources_channelId ON sources(channelId);
     CREATE INDEX IF NOT EXISTS idx_sources_status ON sources(status);
   `);
 
-  // Migration: Add sortOrder to groups table if it doesn't exist
+  // Migration: Add sortOrder to tags table if it doesn't exist
   try {
-    db.prepare("SELECT sortOrder FROM groups LIMIT 1").get();
+    db.prepare("SELECT sortOrder FROM tags LIMIT 1").get();
   } catch (err) {
-    db.exec("ALTER TABLE groups ADD COLUMN sortOrder INTEGER DEFAULT 0");
+    db.exec("ALTER TABLE tags ADD COLUMN sortOrder INTEGER DEFAULT 0");
   }
   // Migration: Add sortOrder to channels table if it doesn't exist
   try {
@@ -353,7 +389,7 @@ function findAliasTemplate(rawName: string): { templateName: string; aliases: st
 }
 
 // Seed Data
-const DEFAULT_GROUPS: Group[] = [
+const DEFAULT_GROUPS: Tag[] = [
   { id: "g_yangshi", name: "央视频道" },
   { id: "g_weishi", name: "卫视频道" },
   { id: "g_local", name: "地方频道" },
@@ -524,7 +560,7 @@ function loadData() {
     if (legacyJsonFound && parsed) {
       channels = parsed.channels || [];
       syncConfigs = parsed.syncConfigs || [];
-      groups = parsed.groups || [];
+      tags = parsed.tags || parsed.groups || [];
       epgSources = parsed.epgSources || [];
       if (parsed.adminPassword !== undefined) {
         adminPassword = parsed.adminPassword;
@@ -559,8 +595,8 @@ function loadData() {
         if (row.key === "autoCreateChannel") autoCreateChannel = (row.value === "true" || row.value === "1");
       }
 
-      const loadedGroups = db.prepare("SELECT * FROM groups ORDER BY sortOrder ASC").all();
-      groups = loadedGroups.map((g: any) => ({
+      const loadedTags = db.prepare("SELECT * FROM tags ORDER BY sortOrder ASC").all();
+      tags = loadedTags.map((g: any) => ({
         id: g.id,
         name: g.name
       }));
@@ -616,9 +652,9 @@ function loadData() {
       channels = dbChannels.map((ch: any) => {
         let groupIds: string[] = [];
         try {
-          groupIds = JSON.parse(ch.groupIds || "[]");
+          groupIds = JSON.parse(ch.tagIds || "[]");
         } catch {
-          groupIds = ch.groupIds ? ch.groupIds.split(",") : [];
+          groupIds = ch.groupIds ? ch.tagIds.split(",") : [];
         }
 
         let alias: string[] = [];
@@ -630,6 +666,7 @@ function loadData() {
           id: ch.id,
           name: ch.name,
           logo: ch.logo || "",
+          tagIds: groupIds,
           groupIds,
           alias,
           epgId: ch.epgId || "",
@@ -644,7 +681,7 @@ function loadData() {
       console.log("[SQLite Seed] Entire database is empty. Seeding defaults...");
       channels = DEFAULT_CHANNELS;
       syncConfigs = DEFAULT_SYNC_CONFIGS;
-      groups = DEFAULT_GROUPS;
+      tags = DEFAULT_GROUPS;
       epgSources = [
         {
           id: "epg_fanmingming",
@@ -666,15 +703,15 @@ function loadData() {
 
     // Run Migration: if groups collection or channel groupIds are missing
     let updated = false;
-    if (groups.length === 0) {
+    if (tags.length === 0) {
       const uniqueCats = new Set<string>();
       channels.forEach((c: any) => {
         if (c.category) uniqueCats.add(c.category);
       });
       if (uniqueCats.size === 0) {
-        groups = [...DEFAULT_GROUPS];
+        tags = [...DEFAULT_GROUPS];
       } else {
-        groups = Array.from(uniqueCats).map((catName) => ({
+        tags = Array.from(uniqueCats).map((catName) => ({
           id: "g_" + Math.random().toString(36).substring(2, 10),
           name: catName,
         }));
@@ -685,33 +722,33 @@ function loadData() {
     // Ensure all channels have groupIds array and map old category
     channels.forEach((c: any) => {
       if (!c.groupIds) {
-        c.groupIds = [];
+        c.tagIds = [];
         updated = true;
       }
       if (c.category) {
-        let matchingGroup = groups.find((g) => g.name === c.category);
+        let matchingGroup = tags.find((g) => g.name === c.category);
         if (!matchingGroup) {
           matchingGroup = {
             id: "g_" + Math.random().toString(36).substring(2, 10),
             name: c.category,
           };
-          groups.push(matchingGroup);
+          tags.push(matchingGroup);
           updated = true;
         }
-        if (!c.groupIds.includes(matchingGroup.id)) {
-          c.groupIds.push(matchingGroup.id);
+        if (!c.tagIds.includes(matchingGroup.id)) {
+          c.tagIds.push(matchingGroup.id);
           updated = true;
         }
       }
       // Guarantee at least one group membership
-      if (c.groupIds.length === 0) {
-        let otherGroup = groups.find((g) => g.id === "g_other" || g.name === "其它频道");
-        if (!otherGroup) {
-          otherGroup = { id: "g_other", name: "其它频道" };
-          groups.push(otherGroup);
+      if (c.tagIds.length === 0) {
+        let otherTag = tags.find((g) => g.id === "g_other" || g.name === "其它" || g.name === "其它频道");
+        if (!otherTag) {
+          otherTag = { id: "g_other", name: "其它" };
+          tags.push(otherTag);
           updated = true;
         }
-        c.groupIds.push(otherGroup.id);
+        c.tagIds.push(otherTag.id);
         updated = true;
       }
     });
@@ -737,7 +774,7 @@ function loadData() {
     console.error("Failed to load Radio data from SQLite:", error);
     channels = DEFAULT_CHANNELS;
     syncConfigs = DEFAULT_SYNC_CONFIGS;
-    groups = DEFAULT_GROUPS;
+    tags = DEFAULT_GROUPS;
   }
 }
 
@@ -751,18 +788,18 @@ function saveData() {
       insertSetting.run("githubProxy", githubProxy);
       insertSetting.run("autoCreateChannel", autoCreateChannel ? "true" : "false");
 
-      // 2. Sync groups
-      db.exec("DELETE FROM groups");
-      const insertGroup = db.prepare("INSERT INTO groups (id, name) VALUES (?, ?)");
-      for (const g of groups) {
-        insertGroup.run(g.id, g.name);
+      // 2. Sync tags
+      db.exec("DELETE FROM tags");
+      const insertTag = db.prepare("INSERT INTO tags (id, name) VALUES (?, ?)");
+      for (const g of tags) {
+        insertTag.run(g.id, g.name);
       }
 
       // 3. Sync channels & sources
       db.exec("DELETE FROM channels");
       db.exec("DELETE FROM sources");
 
-      const insertChannel = db.prepare("INSERT INTO channels (id, name, logo, groupIds, alias, epgId) VALUES (?, ?, ?, ?, ?, ?)");
+      const insertChannel = db.prepare("INSERT INTO channels (id, name, logo, tagIds, alias, epgId) VALUES (?, ?, ?, ?, ?, ?)");
       const insertSource = db.prepare(`
         INSERT INTO sources (id, channelId, url, status, latency, lastChecked)
         VALUES (?, ?, ?, ?, ?, ?)
@@ -773,7 +810,7 @@ function saveData() {
           ch.id,
           ch.name,
           ch.logo || "",
-          JSON.stringify(ch.groupIds || []),
+          JSON.stringify(ch.tagIds || []),
           JSON.stringify(ch.alias || []),
           ch.epgId || ""
         );
@@ -869,7 +906,8 @@ function checkAndPerformDailyBackup() {
       const backupJsonPath = path.join(DATA_DIR, backupJsonName);
       if (!fs.existsSync(backupJsonPath)) {
         const backupJson = {
-          groups,
+          tags,
+          groups: tags,
           channels,
           syncConfigs,
           epgSources,
@@ -1463,19 +1501,19 @@ async function performSync(config: SyncConfig, force = false) {
           
           
 
-          // Find or create correct Group entities for this category (comma/semicolon split for many-to-many relationship)
+          // Find or create correct Tag entities for this category (comma/semicolon split for many-to-many relationship)
           const catNames = currentInfo.category.split(/[,;，；]/).map(s => s.trim()).filter(Boolean);
           if (catNames.length === 0) catNames.push("其它频道");
           
           const matchedGroupIds: string[] = [];
           for (const catName of catNames) {
-            let existingGroup = groups.find(g => g.name.toLowerCase() === catName.toLowerCase());
+            let existingGroup = tags.find(g => g.name.toLowerCase() === catName.toLowerCase());
             if (!existingGroup) {
               existingGroup = {
                 id: "g_" + Math.random().toString(36).substring(2, 10),
                 name: catName,
               };
-              groups.push(existingGroup);
+              tags.push(existingGroup);
             }
             matchedGroupIds.push(existingGroup.id);
           }
@@ -1507,6 +1545,7 @@ async function performSync(config: SyncConfig, force = false) {
               id: channelId,
               name: cleanName,
               logo: currentInfo!.logo || "https://images.unsplash.com/photo-1598257006458-087169a1f08d?auto=format&fit=crop&w=48&h=48&q=80",
+              tagIds: matchedGroupIds,
               groupIds: matchedGroupIds,
               alias: cleanAliases,
               epgId: currentInfo!.epgId,
@@ -1575,13 +1614,13 @@ async function performSync(config: SyncConfig, force = false) {
 
           const matchedGroupIds: string[] = [];
           for (const catName of catNames) {
-            let existingGroup = groups.find(g => g.name.toLowerCase() === catName.toLowerCase());
+            let existingGroup = tags.find(g => g.name.toLowerCase() === catName.toLowerCase());
             if (!existingGroup) {
               existingGroup = {
                 id: "g_" + Math.random().toString(36).substring(2, 10),
                 name: catName,
               };
-              groups.push(existingGroup);
+              tags.push(existingGroup);
             }
             matchedGroupIds.push(existingGroup.id);
           }
@@ -1610,6 +1649,7 @@ async function performSync(config: SyncConfig, force = false) {
               id: channelId,
               name: cleanName,
               logo: "https://images.unsplash.com/photo-1598257006458-087169a1f08d?auto=format&fit=crop&w=48&h=48&q=80",
+              tagIds: matchedGroupIds,
               groupIds: matchedGroupIds,
               alias: cleanAliases,
               epgId: generateDefaultEpgId(cleanName),
@@ -1750,14 +1790,15 @@ async function runCronJob(job: any) {
       const filename = `radio_data_backup_auto_${timestamp}.json`;
       
       const backupContent = {
-        groups,
+        tags,
+        groups: tags,
         channels,
         syncConfigs,
         epgSources,
         metadata: {
           timestamp: nowD.toISOString(),
           channelCount: channels.length,
-          groupCount: groups.length
+          groupCount: tags.length
         }
       };
       
@@ -2020,58 +2061,106 @@ async function startServer() {
     res.json({ success: true, count: activeSources.length, successCount });
   });
 
-  // Group CRUD Endpoints
-  app.get("/api/groups", (req, res) => {
-    res.json(groups);
+  // Tag & Group Endpoints
+  app.get("/api/tags/stats", (req, res) => {
+    const stats: Record<string, number> = {};
+    tags.forEach(t => {
+      stats[t.id] = channels.filter(c => (c.tagIds || c.groupIds || []).includes(t.id)).length;
+    });
+    res.json({
+      total: tags.length,
+      stats
+    });
   });
 
+  app.get("/api/tags", (req, res) => { res.json(tags); });
+  app.get("/api/groups", (req, res) => { res.json(tags); });
+
+  app.post("/api/tags", (req, res) => {
+    const { name } = req.body;
+    if (!name) {
+      return res.status(400).json({ error: "标签名称不能为空" });
+    }
+    const newTag = { id: "g_" + Math.random().toString(36).substring(2, 10), name };
+    tags.push(newTag);
+    saveData();
+    res.status(201).json(newTag);
+  });
   app.post("/api/groups", (req, res) => {
     const { name } = req.body;
     if (!name) {
       return res.status(400).json({ error: "分组名称不能为空" });
     }
-    const newGroup: Group = {
-      id: "g_" + Math.random().toString(36).substring(2, 10),
-      name,
-    };
-    groups.push(newGroup);
+    const newTag = { id: "g_" + Math.random().toString(36).substring(2, 10), name };
+    tags.push(newTag);
     saveData();
-    res.status(201).json(newGroup);
+    res.status(201).json(newTag);
   });
 
+  app.put("/api/tags/:id", (req, res) => {
+    const { id } = req.params;
+    const { name } = req.body;
+    const tag = tags.find((t) => t.id === id);
+    if (!tag) {
+      return res.status(404).json({ error: "未找到该标签" });
+    }
+    if (name) tag.name = name;
+    saveData();
+    res.json(tag);
+  });
   app.put("/api/groups/:id", (req, res) => {
     const { id } = req.params;
     const { name } = req.body;
-
-    const group = groups.find((g) => g.id === id);
-    if (!group) {
-      return res.status(404).json({ error: "未找到该分组" });
+    const tag = tags.find((t) => t.id === id);
+    if (!tag) {
+      return res.status(404).json({ error: "未找到该标签" });
     }
-    if (name) group.name = name;
+    if (name) tag.name = name;
     saveData();
-    res.json(group);
+    res.json(tag);
   });
 
-  app.delete("/api/groups/:id", (req, res) => {
+  app.delete("/api/tags/:id", (req, res) => {
     const { id } = req.params;
-    groups = groups.filter((g) => g.id !== id);
-
-    // Remove group reference from all channels
+    tags = tags.filter((t) => t.id !== id);
     channels.forEach((c) => {
-      c.groupIds = c.groupIds.filter((gId) => gId !== id);
-      // Ensure it has at least one group
-      if (c.groupIds.length === 0) {
-        let otherGroup = groups.find((g) => g.id === "g_other" || g.name === "其它频道");
-        if (!otherGroup) {
-          otherGroup = { id: "g_other", name: "其它频道" };
-          groups.push(otherGroup);
+      const channelTags = c.tagIds || c.groupIds || [];
+      const filtered = channelTags.filter((tId) => tId !== id);
+      c.tagIds = filtered;
+      c.groupIds = filtered;
+      if (filtered.length === 0) {
+        let otherTag = tags.find((t) => t.id === "g_other" || t.name === "其它" || t.name === "其它频道");
+        if (!otherTag) {
+          otherTag = { id: "g_other", name: "其它" };
+          tags.push(otherTag);
         }
-        c.groupIds.push(otherGroup.id);
+        c.tagIds = [otherTag.id];
+        c.groupIds = [otherTag.id];
       }
     });
-
     saveData();
-    res.json({ success: true, message: "分组删除成功" });
+    res.json({ success: true });
+  });
+  app.delete("/api/groups/:id", (req, res) => {
+    const { id } = req.params;
+    tags = tags.filter((t) => t.id !== id);
+    channels.forEach((c) => {
+      const channelTags = c.tagIds || c.groupIds || [];
+      const filtered = channelTags.filter((tId) => tId !== id);
+      c.tagIds = filtered;
+      c.groupIds = filtered;
+      if (filtered.length === 0) {
+        let otherTag = tags.find((t) => t.id === "g_other" || t.name === "其它" || t.name === "其它频道");
+        if (!otherTag) {
+          otherTag = { id: "g_other", name: "其它" };
+          tags.push(otherTag);
+        }
+        c.tagIds = [otherTag.id];
+        c.groupIds = [otherTag.id];
+      }
+    });
+    saveData();
+    res.json({ success: true });
   });
 
   app.get("/api/channels", async (req, res) => {
@@ -2152,26 +2241,27 @@ async function startServer() {
     if (groupIds && Array.isArray(groupIds) && groupIds.length > 0) {
       resolvedGroupIds = groupIds;
     } else if (category) {
-      let g = groups.find((g) => g.name === category);
+      let g = tags.find((g) => g.name === category);
       if (!g) {
         g = { id: "g_" + Math.random().toString(36).substring(2, 10), name: category };
-        groups.push(g);
+        tags.push(g);
       }
       resolvedGroupIds = [g.id];
     }
 
     if (resolvedGroupIds.length === 0) {
-      let otherGroup = groups.find((g) => g.id === "g_other" || g.name === "其它频道");
-      if (!otherGroup) {
-        otherGroup = { id: "g_other", name: "其它频道" };
-        groups.push(otherGroup);
+      let otherTag = tags.find((g) => g.id === "g_other" || g.name === "其它" || g.name === "其它频道");
+      if (!otherTag) {
+        otherTag = { id: "g_other", name: "其它" };
+        tags.push(otherTag);
       }
-      resolvedGroupIds = [otherGroup.id];
+      resolvedGroupIds = [otherTag.id];
     }
 
     const newChannel: Channel = {
       id: "ch_" + Math.random().toString(36).substring(2, 10),
       name,
+      tagIds: resolvedGroupIds,
       groupIds: resolvedGroupIds,
       logo: logo || "https://images.unsplash.com/photo-1598257006458-087169a1f08d?auto=format&fit=crop&w=48&h=48&q=80",
       alias: alias ? (Array.isArray(alias) ? alias : alias.split(",").map((s: string) => s.trim())) : [name],
@@ -2196,13 +2286,15 @@ async function startServer() {
     if (name) channel.name = name;
     
     if (groupIds && Array.isArray(groupIds)) {
+      channel.tagIds = groupIds;
       channel.groupIds = groupIds;
     } else if (category) {
-      let g = groups.find((g) => g.name === category);
+      let g = tags.find((g) => g.name === category);
       if (!g) {
         g = { id: "g_" + Math.random().toString(36).substring(2, 10), name: category };
-        groups.push(g);
+        tags.push(g);
       }
+      channel.tagIds = [g.id];
       channel.groupIds = [g.id];
     }
 
@@ -2261,7 +2353,7 @@ async function startServer() {
       if (ch.name && ch.name.trim().length > 0) score += 2;
       if (ch.logo && (ch.logo.startsWith("http") || ch.logo.startsWith("/") || ch.logo.length > 5)) score += 5;
       if (ch.epgId && ch.epgId.trim().length > 0 && !/^\d+$/.test(ch.epgId)) score += 3;
-      if (ch.groupIds && ch.groupIds.length > 0) score += ch.groupIds.length;
+      if (ch.groupIds && ch.tagIds.length > 0) score += ch.tagIds.length;
       if (ch.sources && ch.sources.length > 0) score += ch.sources.length * 2;
       if (ch.alias && ch.alias.length > 0) score += ch.alias.length;
 
@@ -2344,7 +2436,7 @@ async function startServer() {
         });
       }
       if (c.groupIds && Array.isArray(c.groupIds)) {
-        c.groupIds.forEach(g => allGroupIds.add(g));
+        c.tagIds.forEach(g => allGroupIds.add(g));
       }
       if (c.logo && c.logo.trim()) {
         logoCandidates.push(c.logo.trim());
@@ -2425,28 +2517,31 @@ async function startServer() {
     });
   });
 
-  // Batch update channel groups
-  app.post("/api/channels/batch-groups", (req, res) => {
+  // Batch update channel groups / tags
+  app.post(["/api/channels/batch-groups", "/api/channels/batch-tags"], (req, res) => {
     const { channelIds, groupIds, mode } = req.body;
     if (!Array.isArray(channelIds) || channelIds.length === 0) {
       return res.status(400).json({ error: "请提供目标频道 ID 列表" });
     }
     if (!Array.isArray(groupIds)) {
-      return res.status(400).json({ error: "请提供合法的分组 ID 列表" });
+      return res.status(400).json({ error: "请提供合法的标签 ID 列表" });
     }
 
     let updatedCount = 0;
     channels.forEach((c) => {
       if (channelIds.includes(c.id)) {
-        if (!Array.isArray(c.groupIds)) {
-          c.groupIds = [];
-        }
+        const currentTags = c.tagIds || c.groupIds || [];
         if (mode === "append") {
-          // Append selected groupIds to existing groupIds, preserving other categories
-          const merged = new Set([...c.groupIds, ...groupIds]);
+          const merged = new Set([...currentTags, ...groupIds]);
+          c.tagIds = Array.from(merged);
           c.groupIds = Array.from(merged);
+        } else if (mode === "remove") {
+          const filtered = currentTags.filter(gId => !groupIds.includes(gId));
+          c.tagIds = filtered;
+          c.groupIds = filtered;
         } else {
-          // Replace mode (default): overwrite existing categories with selected ones
+          // Replace mode
+          c.tagIds = groupIds;
           c.groupIds = groupIds;
         }
         updatedCount++;
@@ -2459,25 +2554,25 @@ async function startServer() {
     res.json({ success: true, count: updatedCount });
   });
 
-  // Batch remove channel from a single group
-  app.post("/api/channels/batch-remove-group", (req, res) => {
+  // Batch remove channel from a single group / tag
+  app.post(["/api/channels/batch-remove-group", "/api/channels/batch-remove-tag"], (req, res) => {
     const { channelIds, groupId } = req.body;
     if (!Array.isArray(channelIds) || channelIds.length === 0) {
       return res.status(400).json({ error: "请提供目标频道 ID 列表" });
     }
     if (!groupId) {
-      return res.status(400).json({ error: "请提供目标分组 ID" });
+      return res.status(400).json({ error: "请提供目标标签 ID" });
     }
 
     let updatedCount = 0;
     channels.forEach((c) => {
       if (channelIds.includes(c.id)) {
-        if (Array.isArray(c.groupIds)) {
-          const index = c.groupIds.indexOf(groupId);
-          if (index > -1) {
-            c.groupIds.splice(index, 1);
-            updatedCount++;
-          }
+        const currentTags = c.tagIds || c.groupIds || [];
+        const filtered = currentTags.filter(gId => gId !== groupId);
+        if (filtered.length !== currentTags.length) {
+          c.tagIds = filtered;
+          c.groupIds = filtered;
+          updatedCount++;
         }
       }
     });
@@ -2693,13 +2788,13 @@ async function startServer() {
 
             const matchedGroupIds: string[] = [];
             for (const catName of catNames) {
-              let existingGroup = groups.find((g) => g.name.toLowerCase() === catName.toLowerCase());
+              let existingGroup = tags.find((g) => g.name.toLowerCase() === catName.toLowerCase());
               if (!existingGroup) {
                 existingGroup = {
                   id: "g_" + Math.random().toString(36).substring(2, 10),
                   name: catName,
                 };
-                groups.push(existingGroup);
+                tags.push(existingGroup);
               }
               matchedGroupIds.push(existingGroup.id);
             }
@@ -2724,6 +2819,7 @@ async function startServer() {
                 id: "ch_" + Math.random().toString(36).substring(2, 10),
                 name: cleanName,
                 logo: currentInfo.logo || "https://images.unsplash.com/photo-1598257006458-087169a1f08d?auto=format&fit=crop&w=48&h=48&q=80",
+                tagIds: matchedGroupIds,
                 groupIds: matchedGroupIds,
                 alias: cleanAliases,
                 epgId: currentInfo.epgId,
@@ -2786,13 +2882,13 @@ async function startServer() {
 
             const matchedGroupIds: string[] = [];
             for (const catName of catNames) {
-              let existingGroup = groups.find((g) => g.name.toLowerCase() === catName.toLowerCase());
+              let existingGroup = tags.find((g) => g.name.toLowerCase() === catName.toLowerCase());
               if (!existingGroup) {
                 existingGroup = {
                   id: "g_" + Math.random().toString(36).substring(2, 10),
                   name: catName,
                 };
-                groups.push(existingGroup);
+                tags.push(existingGroup);
               }
               matchedGroupIds.push(existingGroup.id);
             }
@@ -2817,6 +2913,7 @@ async function startServer() {
                 id: "ch_" + Math.random().toString(36).substring(2, 10),
                 name: cleanName,
                 logo: "https://images.unsplash.com/photo-1598257006458-087169a1f08d?auto=format&fit=crop&w=48&h=48&q=80",
+                tagIds: matchedGroupIds,
                 groupIds: matchedGroupIds,
                 alias: cleanAliases,
                 epgId: generateDefaultEpgId(cleanName),
@@ -3480,9 +3577,9 @@ ${JSON.stringify(scoredList.map(c => ({ epgId: c.epgId, names: c.displayNames, s
     const maxLimit = limit ? parseInt(String(limit)) : 10;
 
     let queryParams: any[] = [];
-    let catQuery = "SELECT * FROM groups ORDER BY sortOrder ASC";
+    let catQuery = "SELECT * FROM tags ORDER BY sortOrder ASC";
     if (category) {
-      catQuery = "SELECT * FROM groups WHERE name = ? ORDER BY sortOrder ASC";
+      catQuery = "SELECT * FROM tags WHERE name = ? ORDER BY sortOrder ASC";
       queryParams.push(String(category));
     }
     
@@ -3492,7 +3589,7 @@ ${JSON.stringify(scoredList.map(c => ({ epgId: c.epgId, names: c.displayNames, s
     groups.forEach((group) => {
       const groupName = group.name;
       const channels = allChannels.filter(c => {
-        try { const gids = JSON.parse(c.groupIds as unknown as string); return gids.includes(group.id); } catch(e) { return false; }
+        try { const gids = JSON.parse((c.tagIds || c.groupIds) as unknown as string); return gids.includes(group.id); } catch(e) { return false; }
       });
       
       channels.forEach((channel) => {
@@ -3527,9 +3624,9 @@ ${JSON.stringify(scoredList.map(c => ({ epgId: c.epgId, names: c.displayNames, s
     const exportMap = new Map<string, string[]>();
 
     let queryParams: any[] = [];
-    let catQuery = "SELECT * FROM groups ORDER BY sortOrder ASC";
+    let catQuery = "SELECT * FROM tags ORDER BY sortOrder ASC";
     if (category) {
-      catQuery = "SELECT * FROM groups WHERE name = ? ORDER BY sortOrder ASC";
+      catQuery = "SELECT * FROM tags WHERE name = ? ORDER BY sortOrder ASC";
       queryParams.push(String(category));
     }
     
@@ -3807,7 +3904,8 @@ ${JSON.stringify(scoredList.map(c => ({ epgId: c.epgId, names: c.displayNames, s
       const filePath = path.join(DATA_DIR, filename);
       
       const backupContent = {
-        groups,
+        tags,
+        groups: tags,
         channels,
         syncConfigs,
         backupMeta: {
@@ -3832,7 +3930,8 @@ ${JSON.stringify(scoredList.map(c => ({ epgId: c.epgId, names: c.displayNames, s
       const autoBackupName = `radio_data_backup_before_restore_${Date.now()}.json`;
       try {
         const priorBackupJson = {
-          groups,
+          tags,
+          groups: tags,
           channels,
           syncConfigs,
           epgSources,

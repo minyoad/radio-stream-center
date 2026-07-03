@@ -29,13 +29,30 @@ import {
   Shield,
   GitMerge
 } from "lucide-react";
-import { Channel, LiveSource, SyncConfig, TestStatus, EpgGuide, Group, EpgSource } from "./types";
+import { Channel, LiveSource, SyncConfig, TestStatus, EpgGuide, Tag, EpgSource } from "./types";
 import DashboardView from "./components/DashboardView";
 
 export default function App() {
   const [channels, setChannels] = useState<Channel[]>([]);
   const [syncConfigs, setSyncConfigs] = useState<SyncConfig[]>([]);
-  const [groups, setGroups] = useState<Group[]>([]);
+  const [tags, setTags] = useState<Tag[]>([]);
+  const [tagStats, setTagStats] = useState<any>(null);
+  const [loadingStats, setLoadingStats] = useState(false);
+
+  const fetchTagStats = async () => {
+    setLoadingStats(true);
+    try {
+      const res = await fetch("/api/tags/stats");
+      if (res.ok) {
+        const data = await res.json();
+        setTagStats(data);
+      }
+    } catch (e) {
+      console.error("Fetch tag stats error:", e);
+    } finally {
+      setLoadingStats(false);
+    }
+  };
   const [githubProxy, setGithubProxy] = useState("");
   const [githubProxyInput, setGithubProxyInput] = useState("");
   const [autoCreateChannel, setAutoCreateChannel] = useState(true);
@@ -123,7 +140,7 @@ export default function App() {
     }
   }, [selectedCronJob]);
 
-  const [channelSubTab, setChannelSubTab] = useState<"channels" | "groups" | "sources">("channels");
+  const [channelSubTab, setChannelSubTab] = useState<"channels" | "tags" | "sources">("channels");
   
   // States for interactive actions
   const [searchQuery, setSearchQuery] = useState("");
@@ -193,7 +210,7 @@ export default function App() {
   // Batch channel operations state
   const [selectedChannelIds, setSelectedChannelIds] = useState<string[]>([]);
   const [isBatchGroupModalOpen, setIsBatchGroupModalOpen] = useState(false);
-  const [batchGroupForm, setBatchGroupForm] = useState<{ groupIds: string[]; mode: "replace" | "append" }>({ groupIds: [], mode: "replace" });
+  const [batchGroupForm, setBatchGroupForm] = useState<{ tagIds: string[]; mode: "replace" | "append" | "remove" }>({ tagIds: [], mode: "append" });
 
   // Batch live source operations state
   const [selectedSourceIds, setSelectedSourceIds] = useState<string[]>([]);
@@ -297,7 +314,7 @@ export default function App() {
             channelId: ch.id,
             channelName: ch.name,
             channelLogo: ch.logo,
-            channelGroupIds: ch.groupIds
+            channelGroupIds: ch.tagIds || ch.groupIds || []
           });
         });
       }
@@ -474,17 +491,21 @@ export default function App() {
       const [resChannels, resSync, resGroups, resSettings] = await Promise.all([
         fetch("/api/channels?full=true"),
         fetch("/api/sync-configs"),
-        fetch("/api/groups"),
+        fetch("/api/tags"),
         fetch("/api/settings")
       ]);
       if (resChannels.ok) {
         const data = await resChannels.json();
-        setChannels(data);
-        if (data.length > 0 && !selectedChannel) {
-          setSelectedChannel(data[0]);
+        const normalized = (data || []).map((c: any) => ({
+          ...c,
+          tagIds: c.tagIds || c.groupIds || []
+        }));
+        setChannels(normalized);
+        if (normalized.length > 0 && !selectedChannel) {
+          setSelectedChannel(normalized[0]);
         } else if (selectedChannel) {
           // Keep selection updated
-          const fresh = data.find((c: Channel) => c.id === selectedChannel.id);
+          const fresh = normalized.find((c: Channel) => c.id === selectedChannel.id);
           if (fresh) setSelectedChannel(fresh);
         }
       }
@@ -492,7 +513,7 @@ export default function App() {
         setSyncConfigs(await resSync.json());
       }
       if (resGroups.ok) {
-        setGroups(await resGroups.json());
+        setTags(await resGroups.json());
       }
       if (resSettings && resSettings.ok) {
         const settingsData = await resSettings.json();
@@ -545,7 +566,12 @@ export default function App() {
             // Refresh channel data live to show checked progress
             const resChannels = await fetch("/api/channels?full=true");
             if (resChannels.ok && isMounted) {
-              setChannels(await resChannels.json());
+              const data = await resChannels.json();
+              const normalized = (data || []).map((c: any) => ({
+                ...c,
+                tagIds: c.tagIds || c.groupIds || []
+              }));
+              setChannels(normalized);
             }
           }
           // Poll every 2s when running, else every 10s when idle
@@ -837,9 +863,9 @@ export default function App() {
           .filter(Boolean);
 
         for (const newName of listNewNames) {
-          let matchedGroup = groups.find(g => g.name.toLowerCase() === newName.toLowerCase());
+          let matchedGroup = tags.find(g => g.name.toLowerCase() === newName.toLowerCase());
           if (!matchedGroup) {
-            const gRes = await fetch("/api/groups", {
+            const gRes = await fetch("/api/tags", {
               method: "POST",
               headers: { "Content-Type": "application/json" },
               body: JSON.stringify({ name: newName })
@@ -847,7 +873,7 @@ export default function App() {
             if (gRes.ok) {
               const newG = await gRes.json();
               matchedGroup = newG;
-              groups.push(newG); // update client state cache securely
+              tags.push(newG); // update client state cache securely
             }
           }
           if (matchedGroup && !finalGroupIds.includes(matchedGroup.id)) {
@@ -979,28 +1005,28 @@ export default function App() {
 
   const openBatchGroupModal = () => {
     if (selectedChannelIds.length === 0) {
-      showFeedback("info", "请先选择需要编辑分组的频道");
+      showFeedback("info", "请先选择需要编辑标签的频道");
       return;
     }
-    setBatchGroupForm({ groupIds: [], mode: "append" }); // Default to append since user requested adding/appending logic as a primary feature
+    setBatchGroupForm({ tagIds: [], mode: "append" });
     setIsBatchGroupModalOpen(true);
   };
 
   const handleBatchGroupSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (selectedChannelIds.length === 0) return;
-    if (batchGroupForm.groupIds.length === 0) {
+    if (batchGroupForm.tagIds.length === 0) {
       showFeedback("error", "请至少选择一个分组");
       return;
     }
 
     try {
-      const res = await fetch("/api/channels/batch-groups", {
+      const res = await fetch("/api/channels/batch-tags", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           channelIds: selectedChannelIds,
-          groupIds: batchGroupForm.groupIds,
+          groupIds: batchGroupForm.tagIds,
           mode: batchGroupForm.mode
         })
       });
@@ -1021,7 +1047,7 @@ export default function App() {
 
   const handleBatchRemoveFromGroup = async () => {
     if (selectedChannelIds.length === 0) return;
-    const activeGroup = groups.find(g => g.name === selectedCategory);
+    const activeGroup = tags.find(g => g.name === selectedCategory);
     if (!activeGroup) {
       showFeedback("error", "当前未选定具体分组，无法执行移除操作");
       return;
@@ -1032,7 +1058,7 @@ export default function App() {
       `确定要将选中的 ${selectedChannelIds.length} 个项目从 [${activeGroup.name}] 分组中移除吗？`,
       async () => {
         try {
-          const res = await fetch("/api/channels/batch-remove-group", {
+          const res = await fetch("/api/channels/batch-remove-tag", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
@@ -1332,7 +1358,7 @@ export default function App() {
     setAiRecommendError("");
     setChannelForm({
       name: "",
-      groupIds: groups.length > 0 ? [groups[0].id] : [],
+      groupIds: tags.length > 0 ? [tags[0].id] : [],
       newGroupsString: "",
       logo: "https://vfiles.gtimg.cn/vupload/20210729/cf2b0d1627514936398.png",
       alias: "",
@@ -1347,7 +1373,7 @@ export default function App() {
     setAiRecommendError("");
     setChannelForm({
       name: ch.name || "",
-      groupIds: ch.groupIds || [],
+      groupIds: ch.tagIds || ch.groupIds || [],
       newGroupsString: "",
       logo: ch.logo || "",
       alias: ch.alias ? ch.alias.join(", ") : "",
@@ -1758,19 +1784,20 @@ export default function App() {
 
   // Filtered Channels selection
   const getUniqueCategories = () => {
-    return ["all", ...groups.map(g => g.name)];
+    return ["all", ...tags.map(g => g.name)];
   };
 
   const filteredChannels = channels.filter(c => {
-    const groupNames = c.groupIds.map(gId => groups.find(g => g.id === gId)?.name || "").filter(Boolean);
+    const channelTags = c.tagIds || c.groupIds || [];
+    const groupNames = channelTags.map(gId => tags.find(g => g.id === gId)?.name || "").filter(Boolean);
     const cleanQuery = searchQuery.toLowerCase().replace(/[-_.\s]+/g, "");
     const matchesSearch = !cleanQuery ||
                           c.name.toLowerCase().replace(/[-_.\s]+/g, "").includes(cleanQuery) ||
                           c.alias.some(a => a.toLowerCase().replace(/[-_.\s]+/g, "").includes(cleanQuery)) ||
                           groupNames.some(gn => gn.toLowerCase().replace(/[-_.\s]+/g, "").includes(cleanQuery));
     
-    const matchesCategory = selectedCategory === "all" || c.groupIds.some(gId => {
-      const g = groups.find(gl => gl.id === gId);
+    const matchesCategory = selectedCategory === "all" || channelTags.some(gId => {
+      const g = tags.find(gl => gl.id === gId);
       return g && g.name === selectedCategory;
     });
     return matchesSearch && matchesCategory;
@@ -2136,15 +2163,15 @@ export default function App() {
                   频道与线路维护
                 </button>
                 <button
-                  onClick={() => setChannelSubTab("groups")}
+                  onClick={() => setChannelSubTab("tags")}
                   className={`px-4 py-2 rounded-xl text-xs font-bold transition flex items-center gap-1.5 cursor-pointer ${
-                    channelSubTab === "groups"
+                    channelSubTab === "tags"
                     ? "bg-slate-800 text-white shadow-md shadow-slate-900/10"
                     : "bg-white text-slate-500 hover:text-slate-800 hover:bg-slate-50 border border-slate-200"
                   }`}
                 >
                   <Layers className="w-3.5 h-3.5" />
-                  分组/分类管理 (多对多)
+                  标签管理 (多对多)
                 </button>
                 <button
                   onClick={() => setChannelSubTab("sources")}
@@ -2159,12 +2186,12 @@ export default function App() {
                 </button>
               </div>
 
-              {channelSubTab === "groups" && (
+              {channelSubTab === "tags" && (
                 <div className="bg-white rounded-2xl border border-slate-200 p-6 space-y-6 animate-fade-in" id="groups_manager_container">
                   <div className="max-w-md space-y-3">
-                    <h3 className="font-bold text-slate-800 text-sm">👥 新建或编辑分组/分类</h3>
+                    <h3 className="font-bold text-slate-800 text-sm">👥 新建或编辑标签</h3>
                     <p className="text-[11px] text-slate-500 leading-relaxed font-semibold">
-                      分组采用多对多（Many-to-Many）设计，频道可以归属于零个、一个或多个分组。删除分组不会删除对应的频道本身，该频道会自动关联默认备用分组。
+                      标签采用多对多（Many-to-Many）设计，频道可以归属于零个、一个或多个分组。删除标签不会删除对应的频道本身，该频道会自动关联默认备用标签。
                     </p>
                     
                     <form 
@@ -2176,7 +2203,7 @@ export default function App() {
                         if (!name) return;
                         
                         try {
-                          const res = await fetch("/api/groups", {
+                          const res = await fetch("/api/tags", {
                             method: "POST",
                             headers: { "Content-Type": "application/json" },
                             body: JSON.stringify({ name })
@@ -2187,7 +2214,7 @@ export default function App() {
                             fetchData();
                           } else {
                             const err = await res.json();
-                            showFeedback("error", err.error || "创建分组失败");
+                            showFeedback("error", err.error || "创建标签失败");
                           }
                         } catch (err) {
                           showFeedback("error", "网络连接异常");
@@ -2199,23 +2226,23 @@ export default function App() {
                         type="text" 
                         name="name" 
                         required 
-                        placeholder="输入新分组名称, 如: 4K超清, 山东专区"
+                        placeholder="输入新标签名称, 如: 4K超清, 山东专区"
                         className="flex-1 text-xs p-2.5 border border-slate-200 rounded-xl bg-slate-50 focus:outline-none focus:border-indigo-500 font-bold"
                       />
                       <button 
                         type="submit"
                         className="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-xl shadow-md transition cursor-pointer"
                       >
-                        创建分组
+                        创建标签
                       </button>
                     </form>
                   </div>
 
                   <div className="border-t border-slate-100 pt-6 space-y-4">
-                    <h4 className="font-bold text-slate-800 text-xs">已存在的实体直播分组目录 ({groups.length} 个)</h4>
+                    <h4 className="font-bold text-slate-800 text-xs">已存在的实体直播标签目录 ({tags.length} 个)</h4>
                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4" id="groups_cards_grid">
-                      {groups.map((g) => {
-                        const countChannels = channels.filter(c => c.groupIds.includes(g.id)).length;
+                      {tags.map((g) => {
+                        const countChannels = channels.filter(c => (c.tagIds || c.groupIds || []).includes(g.id)).length;
                         return (
                           <div key={g.id} className="p-4 border border-slate-200 rounded-2xl bg-slate-50/50 flex items-center justify-between hover:border-slate-350 transition" id={`group_item_${g.id}`}>
                             <div className="space-y-1 pr-4 flex-1">
@@ -2226,7 +2253,7 @@ export default function App() {
                                   const val = e.target.value.trim();
                                   if (!val || val === g.name) return;
                                   try {
-                                    const res = await fetch(`/api/groups/${g.id}`, {
+                                    const res = await fetch(`/api/tags/${g.id}`, {
                                       method: "PUT",
                                       headers: { "Content-Type": "application/json" },
                                       body: JSON.stringify({ name: val })
@@ -2245,21 +2272,21 @@ export default function App() {
                                 }}
                                 className="font-bold text-slate-800 text-xs bg-transparent border-b border-transparent focus:border-indigo-500 focus:outline-none hover:bg-slate-200/45 p-0.5 rounded transition w-full font-semibold"
                               />
-                              <p className="text-[10px] text-slate-400 font-medium">关联频道: <span className="font-mono text-slate-600 font-bold">{countChannels}</span> 个</p>
+                              <p className="text-[10px] text-slate-400 font-medium">归属频道: <span className="font-mono text-slate-600 font-bold">{countChannels}</span> 个</p>
                             </div>
 
                             <button
                               onClick={() => {
                                 if (g.id === "g_other" || g.name === "其它频道") {
-                                  showFeedback("error", "系统保护的内置备用分组，无法被手动删除");
+                                  showFeedback("error", "系统保护的内置备用标签，无法被手动删除");
                                   return;
                                 }
                                 triggerConfirm(
-                                  "删除分组",
-                                  `确定要删除 [${g.name}] 分组吗？所属频道不会被删除，它们会自动脱离关联分组。`,
+                                  "删除标签",
+                                  `确定要删除 [${g.name}] 标签吗？所属频道不会被删除，它们会自动脱离关联分组。`,
                                   async () => {
                                     try {
-                                      const res = await fetch(`/api/groups/${g.id}`, { method: "DELETE" });
+                                      const res = await fetch(`/api/tags/${g.id}`, { method: "DELETE" });
                                       if (res.ok) {
                                         showFeedback("success", "分组删除成功");
                                         fetchData();
@@ -2273,7 +2300,7 @@ export default function App() {
                                 );
                               }}
                               className="p-2 bg-white hover:bg-rose-50 border border-slate-250 text-slate-400 hover:text-rose-600 rounded-xl transition shadow-xs cursor-pointer"
-                              title="删除此分组"
+                              title="删除此标签"
                             >
                               <Trash2 className="w-3.5 h-3.5" />
                             </button>
@@ -2314,7 +2341,7 @@ export default function App() {
                           : "text-slate-500 hover:bg-slate-50 hover:text-slate-800"
                         }`}
                       >
-                        {cat === "all" ? "全部类型" : cat}
+                        {cat === "all" ? "全部标签" : cat}
                       </button>
                     ))}
                   </div>
@@ -2374,7 +2401,7 @@ export default function App() {
                             className="bg-blue-600 hover:bg-blue-700 text-white text-[10px] font-bold px-2.5 py-1 rounded-lg transition shadow-xs cursor-pointer flex items-center gap-1"
                           >
                             <Layers className="w-3 h-3" />
-                            批量分组
+                            批量标签
                           </button>
                           {selectedCategory !== "all" && (
                             <button
@@ -2382,7 +2409,7 @@ export default function App() {
                               className="bg-amber-600 hover:bg-amber-700 text-white text-[10px] font-bold px-2.5 py-1 rounded-lg transition shadow-xs cursor-pointer flex items-center gap-1"
                             >
                               <XCircle className="w-3 h-3" />
-                              移出分组
+                              移出标签
                             </button>
                           )}
                           <button
@@ -2475,8 +2502,8 @@ export default function App() {
                               <span className="text-[10px] font-bold bg-slate-100 text-slate-600 px-2 py-0.5 rounded-full">
                                 {activeCount} / {ch.sources.length} 条有效
                               </span>
-                              <span className="text-[10px] font-semibold bg-blue-50 text-blue-700 px-1.5 py-0.5 rounded max-w-28 truncate" title={ch.groupIds.map(gId => groups.find(g => g.id === gId)?.name).filter(Boolean).join(", ")}>
-                                {ch.groupIds.map(gId => groups.find(g => g.id === gId)?.name).filter(Boolean).join(", ") || "其它"}
+                              <span className="text-[10px] font-semibold bg-blue-50 text-blue-700 px-1.5 py-0.5 rounded max-w-28 truncate" title={(ch.tagIds || ch.groupIds || []).map(gId => tags.find(g => g.id === gId)?.name).filter(Boolean).join(", ")}>
+                                {(ch.tagIds || ch.groupIds || []).map(gId => tags.find(g => g.id === gId)?.name).filter(Boolean).join(", ") || "其它"}
                               </span>
 
                               {/* Small Quick Action Panel */}
@@ -2536,7 +2563,7 @@ export default function App() {
                             <div className="flex items-center gap-2">
                               <h3 className="font-bold text-slate-800 text-sm leading-tight">{selectedChannel.name}</h3>
                               <span className="bg-slate-100 text-[10px] text-slate-600 px-2 py-0.5 rounded">
-                                {selectedChannel.groupIds.map(gId => groups.find(g => g.id === gId)?.name).filter(Boolean).join(", ") || "其它"}
+                                {(selectedChannel.tagIds || selectedChannel.groupIds || []).map(gId => tags.find(g => g.id === gId)?.name).filter(Boolean).join(", ") || "其它"}
                               </span>
                             </div>
                             <p className="text-[11px] text-slate-500 mt-1">
@@ -2876,7 +2903,7 @@ export default function App() {
                           </h4>
                         </div>
                         <p className="text-[11px] text-slate-500 leading-relaxed font-semibold">
-                          利用云端高带宽服务器容器，直接下发全局异步并发测速任务。可以通过下方的高级过滤器或选择列表精确隔离某一特定线路进行分类发起！
+                          利用云端高带宽服务器容器，直接下发全局异步并发测速任务。可以通过下方的高级过滤器或选择列表精确隔离某一特定线路进行标签发起！
                         </p>
                       </div>
 
@@ -3453,8 +3480,8 @@ export default function App() {
                   <h4 className="font-bold">支持 GitHub 直播源及本地格式快速导入</h4>
                   <p className="mt-1">
                     系统内置强劲文件语法识别器，会自动根据后缀为 M3U 或 TXT 展开智能解析：
-                    <br />• <b>M3U 规范:</b> 解析包含 <code>#EXTINF</code>, <code>tvg-logo</code>, <code>group-title</code> 等参数的高级频道元数据，并映射至分类中。
-                    <br />• <b>TXT (标准播放器规范):</b> 解析 <code>分类名,#genre</code> 行与其下逗号分割的频道名和线路列表，自动建立关系结构。
+                    <br />• <b>M3U 规范:</b> 解析包含 <code>#EXTINF</code>, <code>tvg-logo</code>, <code>group-title</code> 等参数的高级频道元数据，并映射至标签中。
+                    <br />• <b>TXT (标准播放器规范):</b> 解析 <code>标签名,#genre</code> 行与其下逗号分割的频道名和线路列表，自动建立关系结构。
                   </p>
                 </div>
               </div>
@@ -3537,7 +3564,7 @@ export default function App() {
                     </div>
                     <div>
                       <h3 className="font-bold text-slate-800 text-sm">自动同步频道创建策略</h3>
-                      <p className="text-xs text-slate-400 mt-0.5">控制在订阅源同步过程中是否自动注册不存在的新频道分类</p>
+                      <p className="text-xs text-slate-400 mt-0.5">控制在订阅源同步过程中是否自动注册不存在的新频道标签</p>
                     </div>
                   </div>
                 </div>
@@ -3546,7 +3573,7 @@ export default function App() {
                   <div className="flex-1 pr-4">
                     <span className="font-bold text-slate-700 text-xs block">允许在自动同步时创建新频道</span>
                     <span className="text-[11px] text-slate-400 mt-0.5 block leading-relaxed">
-                      开启时：拉取订阅源后，若发现未录入的频道名称，将被自动生成并分类；<br />
+                      开启时：拉取订阅源后，若发现未录入的频道名称，将被自动生成并标签；<br />
                       关闭时：不创建任何新频道，只对系统里已被添加或存在的现有频道，维护更新其对应的直播源线路。
                     </span>
                   </div>
@@ -4670,9 +4697,9 @@ export default function App() {
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div className="space-y-1.5 font-sans">
-                  <label>关联直播分类 (选择一个或多个分组) *</label>
+                  <label>关联直播标签 (选择一个或多个分组) *</label>
                   <div className="border border-slate-200 rounded-xl bg-slate-50 p-2.5 max-h-32 overflow-y-auto space-y-1" id="group_checkboxes_pnl">
-                    {groups.map((g) => {
+                    {tags.map((g) => {
                       const isChecked = channelForm.groupIds.includes(g.id);
                       return (
                         <label key={g.id} className="flex items-center gap-2 cursor-pointer py-0.5 hover:bg-slate-100/50 rounded px-1.5 select-none text-slate-700">
@@ -4700,7 +4727,7 @@ export default function App() {
 
                 <div className="space-y-1.5 flex flex-col justify-between font-sans">
                   <div>
-                    <label>创建并关联新分类 (动态逗号分隔)</label>
+                    <label>创建并关联新标签 (动态逗号分隔)</label>
                     <input
                       type="text"
                       value={channelForm.newGroupsString}
@@ -4967,42 +4994,52 @@ export default function App() {
         <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 font-sans" id="batch_group_modal">
           <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl border border-slate-100 space-y-5 flex flex-col animate-fade-in font-sans">
             <div className="flex justify-between items-center">
-              <h3 className="text-sm font-bold text-slate-800 font-sans">批量修改/调整频道分类 (共选中 {selectedChannelIds.length} 条频道)</h3>
+              <h3 className="text-sm font-bold text-slate-800 font-sans">批量修改/调整频道标签 (共选中 {selectedChannelIds.length} 条频道)</h3>
               <button className="text-slate-400 hover:text-slate-600 font-bold" onClick={()=>setIsBatchGroupModalOpen(false)}>✕</button>
             </div>
             
             <form onSubmit={handleBatchGroupSubmit} className="space-y-4 text-xs font-semibold text-slate-600">
               <div className="space-y-1.5 font-sans">
                 <label className="text-slate-700 block col-span-2">操作模式 *</label>
-                <div className="flex gap-4 p-2.5 bg-slate-50 border border-slate-200 rounded-xl">
-                  <label className="flex items-center gap-2 cursor-pointer select-none">
+                <div className="grid grid-cols-3 gap-2 p-2 bg-slate-50 border border-slate-200 rounded-xl">
+                  <label className="flex items-center gap-1.5 cursor-pointer select-none">
                     <input
                       type="radio"
                       name="batchGroupMode"
                       checked={batchGroupForm.mode === "append"}
                       onChange={() => setBatchGroupForm({ ...batchGroupForm, mode: "append" })}
-                      className="w-4 h-4 text-indigo-600 border-slate-300 focus:ring-indigo-500 cursor-pointer"
+                      className="w-3.5 h-3.5 text-indigo-600 border-slate-300 focus:ring-indigo-500 cursor-pointer"
                     />
-                    <span className="text-xs font-bold text-slate-700">追加分组 (保留并累加分类)</span>
+                    <span className="text-[11px] font-bold text-slate-700">追加标签</span>
                   </label>
-                  <label className="flex items-center gap-2 cursor-pointer select-none">
+                  <label className="flex items-center gap-1.5 cursor-pointer select-none">
                     <input
                       type="radio"
                       name="batchGroupMode"
                       checked={batchGroupForm.mode === "replace"}
                       onChange={() => setBatchGroupForm({ ...batchGroupForm, mode: "replace" })}
-                      className="w-4 h-4 text-indigo-600 border-slate-300 focus:ring-indigo-500 cursor-pointer"
+                      className="w-3.5 h-3.5 text-indigo-600 border-slate-300 focus:ring-indigo-500 cursor-pointer"
                     />
-                    <span className="text-xs font-bold text-slate-700">替换分组 (彻底重置原分类)</span>
+                    <span className="text-[11px] font-bold text-slate-700">覆盖替换</span>
+                  </label>
+                  <label className="flex items-center gap-1.5 cursor-pointer select-none">
+                    <input
+                      type="radio"
+                      name="batchGroupMode"
+                      checked={batchGroupForm.mode === "remove"}
+                      onChange={() => setBatchGroupForm({ ...batchGroupForm, mode: "remove" })}
+                      className="w-3.5 h-3.5 text-indigo-600 border-slate-300 focus:ring-indigo-500 cursor-pointer"
+                    />
+                    <span className="text-[11px] font-bold text-slate-700 text-rose-600">批量移出</span>
                   </label>
                 </div>
               </div>
 
               <div className="space-y-2">
-                <label className="text-slate-700 block">选择目标分类 (可单选或多选) *</label>
+                <label className="text-slate-700 block">选择目标标签 (可单选或多选) *</label>
                 <div className="grid grid-cols-2 gap-2 max-h-48 overflow-y-auto p-2.5 bg-slate-50/50 border border-slate-200 rounded-xl">
-                  {groups.map((group) => {
-                    const isGroupChecked = batchGroupForm.groupIds.includes(group.id);
+                  {tags.map((group) => {
+                    const isGroupChecked = batchGroupForm.tagIds.includes(group.id);
                     return (
                       <label 
                         key={group.id} 
@@ -5020,12 +5057,12 @@ export default function App() {
                             if (e.target.checked) {
                               setBatchGroupForm({
                                 ...batchGroupForm,
-                                groupIds: [...batchGroupForm.groupIds, group.id]
+                                tagIds: [...(batchGroupForm.tagIds || []), group.id]
                               });
                             } else {
                               setBatchGroupForm({
                                 ...batchGroupForm,
-                                groupIds: batchGroupForm.groupIds.filter(id => id !== group.id)
+                                tagIds: (batchGroupForm.tagIds || []).filter(id => id !== group.id)
                               });
                             }
                           }}
@@ -5037,8 +5074,10 @@ export default function App() {
                 </div>
                 <p className="text-[10px] text-slate-400 font-medium font-sans leading-relaxed">
                   {batchGroupForm.mode === "append" 
-                    ? "追加模式说明：所选频道如果原本不属于这些组，会被追加进去，原有的其他分组关系会被完整保留。" 
-                    : "覆盖替换说明：所选频道原有的所有分组关系都将被清除，仅归属于在这个选择框里勾选的新分组。"}
+                    ? "追加模式说明：所选频道如果原本不属于这些标签，会被追加进去，原有的其他标签关系会被完整保留。" 
+                    : batchGroupForm.mode === "replace"
+                    ? "覆盖替换说明：所选频道原有的所有标签关系都将被清除，仅归属于在这个选择框里勾选的新标签。"
+                    : "批量移出说明：从所选频道中批量移除在下方勾选的这些标签（其它没勾选的标签会被保留）。若频道脱离了全部标签，将自动分配至默认标签。"}
                 </p>
               </div>
 
@@ -5054,7 +5093,7 @@ export default function App() {
                   type="submit" 
                   className="w-2/3 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-slate-50 rounded-xl cursor-pointer text-center font-bold shadow-md shadow-indigo-150"
                 >
-                  确认批量更新分组
+                  确认批量操作标签
                 </button>
               </div>
             </form>
