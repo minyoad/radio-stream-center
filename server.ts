@@ -137,7 +137,7 @@ function initSqlite() {
       message TEXT,
       disabled INTEGER,
       consecutiveFailures INTEGER,
-      contentHash TEXT,
+      contentHash TEXT
           );
     CREATE TABLE IF NOT EXISTS epg_sources (
       id TEXT PRIMARY KEY,
