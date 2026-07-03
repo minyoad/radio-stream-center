@@ -176,16 +176,15 @@ function initSqlite() {
     CREATE INDEX IF NOT EXISTS idx_sources_status ON sources(status);
   `);
 
-  // Seed default cron jobs if empty
-  const hasCronJobs = db.prepare("SELECT COUNT(*) as count FROM cron_jobs").get() as { count: number };
-  if (hasCronJobs.count === 0) {
-    const insertCronJob = db.prepare(`
-      INSERT INTO cron_jobs (id, name, startTime, intervalMinutes, active)
-      VALUES (?, ?, ?, ?, ?)
-    `);
-    insertCronJob.run("job_epg_sync", "EPG 自动同步", "02:00", 1440, 0); // default inactive, daily at 2AM
-    insertCronJob.run("job_github_import", "GitHub 源自动导入", "03:00", 1440, 0); // default inactive, daily at 3AM
-  }
+  // Seed default cron jobs
+  const insertCronJob = db.prepare(`
+    INSERT OR IGNORE INTO cron_jobs (id, name, startTime, intervalMinutes, active)
+    VALUES (?, ?, ?, ?, ?)
+  `);
+  insertCronJob.run("job_epg_sync", "EPG 自动同步", "02:00", 1440, 0);
+  insertCronJob.run("job_github_import", "GitHub 源自动导入", "03:00", 1440, 0);
+  insertCronJob.run("job_check_lines", "直播源线路可用性检测", "04:00", 1440, 0);
+  insertCronJob.run("job_system_backup", "系统数据自动硬备份", "05:00", 1440, 0);
 }
 
 const EPG_CACHE_DIR = path.join(DATA_DIR, "epg_cache_sources");
