@@ -107,12 +107,14 @@ function initSqlite() {
   db.exec(`
     CREATE TABLE IF NOT EXISTS groups (
       id TEXT PRIMARY KEY,
-      name TEXT NOT NULL
+      name TEXT NOT NULL,
+      sortOrder INTEGER DEFAULT 0
     );
     CREATE TABLE IF NOT EXISTS channels (
       id TEXT PRIMARY KEY,
       name TEXT NOT NULL,
       logo TEXT,
+      sortOrder INTEGER DEFAULT 0,
       groupIds TEXT,
       alias TEXT,
       epgId TEXT
@@ -175,6 +177,19 @@ function initSqlite() {
     CREATE INDEX IF NOT EXISTS idx_sources_channelId ON sources(channelId);
     CREATE INDEX IF NOT EXISTS idx_sources_status ON sources(status);
   `);
+
+  // Migration: Add sortOrder to groups table if it doesn't exist
+  try {
+    db.prepare("SELECT sortOrder FROM groups LIMIT 1").get();
+  } catch (err) {
+    db.exec("ALTER TABLE groups ADD COLUMN sortOrder INTEGER DEFAULT 0");
+  }
+  // Migration: Add sortOrder to channels table if it doesn't exist
+  try {
+    db.prepare("SELECT sortOrder FROM channels LIMIT 1").get();
+  } catch (err) {
+    db.exec("ALTER TABLE channels ADD COLUMN sortOrder INTEGER DEFAULT 0");
+  }
 
   // Seed default cron jobs
   const insertCronJob = db.prepare(`
@@ -544,7 +559,7 @@ function loadData() {
         if (row.key === "autoCreateChannel") autoCreateChannel = (row.value === "true" || row.value === "1");
       }
 
-      const loadedGroups = db.prepare("SELECT * FROM groups").all();
+      const loadedGroups = db.prepare("SELECT * FROM groups ORDER BY sortOrder ASC").all();
       groups = loadedGroups.map((g: any) => ({
         id: g.id,
         name: g.name
@@ -578,7 +593,7 @@ function loadData() {
         message: es.message || undefined
       }));
 
-      const dbChannels = db.prepare("SELECT * FROM channels").all();
+      const dbChannels = db.prepare("SELECT * FROM channels ORDER BY sortOrder ASC").all();
       const dbSources = db.prepare("SELECT * FROM sources").all();
       const sourceMap = new Map<string, LiveSource[]>();
       
