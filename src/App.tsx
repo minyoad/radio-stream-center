@@ -27,6 +27,8 @@ import {
   FileText,
   Database,
   Shield,
+  Menu,
+  X,
   GitMerge
 } from "lucide-react";
 import { Channel, LiveSource, SyncConfig, TestStatus, EpgGuide, Tag, EpgSource } from "./types";
@@ -66,6 +68,7 @@ export default function App() {
   const [isSyncingAllEpg, setIsSyncingAllEpg] = useState(false);
   const [testingStatus, setTestingStatus] = useState<TestStatus>({ status: "idle", total: 0, checked: 0, results: [] });
   const [activeTab, setActiveTab] = useState<string>("dashboard"); // dashboard, channels, sync, export, epg
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState<boolean>(false);
 
   // Cron Jobs State
   const [cronJobs, setCronJobs] = useState<any[]>([]);
@@ -656,7 +659,7 @@ export default function App() {
     return window.fetch(input, init);
   };
 
-  const checkAuthStatus = async () => {
+  const checkAuthStatus = async (retryCount = 0) => {
     try {
       const res = await fetch("/api/auth/status");
       if (res.ok) {
@@ -684,11 +687,18 @@ export default function App() {
           setIsAuthRequired(false);
           setIsAuthenticated(true);
         }
+        setAuthChecking(false);
+      } else {
+        setAuthChecking(false);
       }
     } catch (e) {
-      console.error("Auth status query failed", e);
-    } finally {
-      setAuthChecking(false);
+      console.error(`Auth status query failed (retry ${retryCount})`, e);
+      if (retryCount < 5) {
+        setTimeout(() => checkAuthStatus(retryCount + 1), 1500);
+      } else {
+        setAuthChecking(false);
+        showFeedback("error", "无法连接到服务器，请刷新页面重试");
+      }
     }
   };
 
@@ -1908,8 +1918,15 @@ export default function App() {
         </div>
       )}
 
+      {/* Mobile Overlay */}
+      {isMobileMenuOpen && (
+        <div 
+          className="fixed inset-0 z-30 bg-slate-900/50 backdrop-blur-sm md:hidden"
+          onClick={() => setIsMobileMenuOpen(false)}
+        />
+      )}
       {/* Primary Sidebar - Styled around Clean Minimalism pattern */}
-      <aside className="w-64 bg-white border-r border-slate-200 flex flex-col flex-shrink-0" id="premium_sidebar">
+      <aside className={`fixed inset-y-0 left-0 z-40 transform ${isMobileMenuOpen ? "translate-x-0" : "-translate-x-full"} md:relative md:translate-x-0 transition-transform duration-300 ease-in-out w-64 bg-white border-r border-slate-200 flex flex-col flex-shrink-0`} id="premium_sidebar">
         {/* Brand Header */}
         <div className="p-6 border-b border-slate-100">
           <div className="flex items-center gap-3">
@@ -1926,7 +1943,7 @@ export default function App() {
         {/* Unified Nav Menu */}
         <div className="flex-1 p-4 space-y-1.5 overflow-y-auto">
           <button 
-            onClick={() => setActiveTab("dashboard")}
+            onClick={() => { setActiveTab("dashboard"); setIsMobileMenuOpen(false); }}
             className={`w-full flex items-center gap-3.5 px-4 py-3 rounded-xl transition text-xs font-semibold ${
               activeTab === "dashboard" 
               ? "bg-blue-50/75 text-blue-700 font-bold" 
@@ -1934,15 +1951,12 @@ export default function App() {
             }`}
             id="nav_dashboard"
           >
-            <Layers className="w-4 h-4" />
-            数据概览 (Overview)
+            <Activity className="w-4 h-4" />
+            系统数据总览概览
           </button>
 
           <button 
-            onClick={() => {
-              setActiveTab("channels");
-              fetchData();
-            }}
+            onClick={() => { setActiveTab("channels"); setIsMobileMenuOpen(false); }}
             className={`w-full flex items-center gap-3.5 px-4 py-3 rounded-xl transition text-xs font-semibold ${
               activeTab === "channels" 
               ? "bg-blue-50/75 text-blue-700 font-bold" 
@@ -1951,11 +1965,11 @@ export default function App() {
             id="nav_channels"
           >
             <Radio className="w-4 h-4" />
-            频道与线路编辑
+            频道与全局源管理
           </button>
 
           <button 
-            onClick={() => setActiveTab("sync")}
+            onClick={() => { setActiveTab("sync"); setIsMobileMenuOpen(false); }}
             className={`w-full flex items-center gap-3.5 px-4 py-3 rounded-xl transition text-xs font-semibold ${
               activeTab === "sync" 
               ? "bg-blue-50/75 text-blue-700 font-bold" 
@@ -1963,12 +1977,12 @@ export default function App() {
             }`}
             id="nav_sync"
           >
-            <UploadCloud className="w-4 h-4" />
-            自动拉取与批量导入
+            <RefreshCw className="w-4 h-4" />
+            网络订阅同步配置
           </button>
 
           <button 
-            onClick={() => setActiveTab("export")}
+            onClick={() => { setActiveTab("export"); setIsMobileMenuOpen(false); }}
             className={`w-full flex items-center gap-3.5 px-4 py-3 rounded-xl transition text-xs font-semibold ${
               activeTab === "export" 
               ? "bg-blue-50/75 text-blue-700 font-bold" 
@@ -1977,14 +1991,11 @@ export default function App() {
             id="nav_export"
           >
             <Download className="w-4 h-4" />
-            自定义播放源接口
+            播放器接口导出
           </button>
 
           <button 
-            onClick={() => {
-              setActiveTab("epg");
-              fetchEpgSources();
-            }}
+            onClick={() => { setActiveTab("epg"); setIsMobileMenuOpen(false); }}
             className={`w-full flex items-center gap-3.5 px-4 py-3 rounded-xl transition text-xs font-semibold ${
               activeTab === "epg" 
               ? "bg-blue-50/75 text-blue-700 font-bold" 
@@ -1993,11 +2004,11 @@ export default function App() {
             id="nav_epg"
           >
             <Calendar className="w-4 h-4" />
-            EPG 节目单同步整合
+            节目单 EPG 管理
           </button>
-
-                    <button 
-            onClick={() => setActiveTab("cron")}
+          
+          <button 
+            onClick={() => { setActiveTab("cron"); setIsMobileMenuOpen(false); }}
             className={`w-full flex items-center gap-3.5 px-4 py-3 rounded-xl transition text-xs font-semibold ${
               activeTab === "cron" 
               ? "bg-blue-50/75 text-blue-700 font-bold" 
@@ -2005,12 +2016,13 @@ export default function App() {
             }`}
             id="nav_cron"
           >
-            <Clock className={`w-4 h-4 ${activeTab === "cron" ? "text-blue-500" : "text-slate-400"}`} />
-            定时任务设置
+            <Clock className="w-4 h-4" />
+            定时任务与自动化
           </button>
 
+
           <button 
-            onClick={() => setActiveTab("backup")}
+            onClick={() => { setActiveTab("backup"); setIsMobileMenuOpen(false); }}
             className={`w-full flex items-center gap-3.5 px-4 py-3 rounded-xl transition text-xs font-semibold ${
               activeTab === "backup" 
               ? "bg-blue-50/75 text-blue-700 font-bold" 
@@ -2080,11 +2092,17 @@ export default function App() {
       </aside>
 
       {/* Main Content Pane */}
-      <main className="flex-1 flex flex-col h-screen overflow-hidden">
+      <main className="flex-1 flex flex-col h-screen overflow-hidden min-w-0">
         {/* Top Header - Structured according to Clean Minimalism Design mockup */}
-        <header className="h-16 bg-white border-b border-slate-200 px-8 flex items-center justify-between flex-shrink-0" id="top_header">
+        <header className="h-16 bg-white border-b border-slate-200 px-4 md:px-8 flex items-center justify-between flex-shrink-0" id="top_header">
           <div className="flex items-center gap-3">
-            <h1 className="text-base font-bold text-slate-800">
+            <button
+              className="md:hidden p-2 text-slate-500 hover:bg-slate-100 rounded-lg transition-colors"
+              onClick={() => setIsMobileMenuOpen(true)}
+            >
+              <Menu className="w-5 h-5" />
+            </button>
+            <h1 className="text-sm md:text-base font-bold text-slate-800 truncate">
               {activeTab === "dashboard" && "数据概览 (Overview)"}
               {activeTab === "channels" && "频道列表与线路维护中心"}
               {activeTab === "sync" && "M3U / TXT 网络同步订阅与自定义文件导入"}
@@ -2150,7 +2168,7 @@ export default function App() {
             <div className="space-y-6 animate-fade-in" id="tab_channels_view">
               
               {/* Inner sub-tab selection */}
-              <div className="flex gap-2.5">
+              <div className="flex flex-col sm:flex-row flex-wrap gap-2.5">
                 <button
                   onClick={() => setChannelSubTab("channels")}
                   className={`px-4 py-2 rounded-xl text-xs font-bold transition flex items-center gap-1.5 cursor-pointer ${
@@ -2220,7 +2238,7 @@ export default function App() {
                           showFeedback("error", "网络连接异常");
                         }
                       }}
-                      className="flex gap-3 pt-1"
+                      className="flex flex-col sm:flex-row gap-3 pt-1"
                     >
                       <input 
                         type="text" 
@@ -2317,19 +2335,19 @@ export default function App() {
                   {/* Filter tools and Header bar */}
                   <div className="flex flex-col md:flex-row gap-4 justify-between" id="channel_filter_panel">
                 <div className="flex flex-1 flex-wrap gap-2.5">
-                  <div className="relative">
+                  <div className="relative w-full sm:w-auto">
                     <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
                     <input 
                       type="text"
                       value={searchQuery}
                       onChange={(e) => setSearchQuery(e.target.value)}
                       placeholder="搜索频道、标签、别名..."
-                      className="pl-9 pr-4 py-2 border border-slate-200 rounded-xl text-xs bg-white w-56 focus:outline-none focus:border-indigo-500"
+                      className="pl-9 pr-4 py-2 border border-slate-200 rounded-xl text-xs bg-white w-full sm:w-56 focus:outline-none focus:border-indigo-500"
                     />
                   </div>
 
                   {/* Category tag Selector pill */}
-                  <div className="flex items-center gap-1.5 bg-white border border-slate-200 rounded-xl px-2.5 py-1" id="category_pills">
+                  <div className="flex flex-wrap items-center gap-1.5 bg-white border border-slate-200 rounded-xl px-2.5 py-1" id="category_pills">
                     <Filter className="w-3.5 h-3.5 text-slate-400 mr-1" />
                     {getUniqueCategories().map((cat) => (
                       <button
@@ -2347,7 +2365,7 @@ export default function App() {
                   </div>
                 </div>
 
-                <div className="flex gap-2">
+                <div className="flex gap-2 w-full md:w-auto">
                   <button 
                     onClick={cleanupInvalidSources}
                     className="px-3.5 py-2 border border-rose-200 text-rose-600 hover:bg-rose-50 text-[11px] font-bold rounded-xl transition cursor-pointer flex items-center"
@@ -2465,7 +2483,7 @@ export default function App() {
                               isSelected ? "bg-blue-50/60 border-l-4 border-blue-600" : "hover:bg-slate-55/40"
                             }`}
                           >
-                            <div className="flex items-center gap-2.5 min-w-0">
+                            <div className="flex items-center gap-2.5 min-w-0 flex-1">
                               <input
                                 type="checkbox"
                                 className="w-3.5 h-3.5 text-blue-600 border-slate-300 rounded focus:ring-blue-500 cursor-pointer flex-shrink-0"
@@ -2487,7 +2505,7 @@ export default function App() {
                                 className="w-8 h-8 rounded-lg object-contain bg-slate-100 p-0.5 shadow-xs flex-shrink-0"
                                 onError={(e)=>{ (e.target as HTMLImageElement).src="https://images.unsplash.com/photo-1598257006458-087169a1f08d?auto=format&fit=crop&w=48&h=48&q=80" }}
                               />
-                              <div className="min-w-0">
+                              <div className="min-w-0 flex-1">
                                 <p className="text-xs font-bold text-slate-800 flex items-center gap-1.5 truncate">
                                   {ch.name}
                                 </p>
@@ -2500,9 +2518,9 @@ export default function App() {
                             <div className="flex items-center gap-2 flex-shrink-0 ml-2">
                               {/* Count pill badge */}
                               <span className="text-[10px] font-bold bg-slate-100 text-slate-600 px-2 py-0.5 rounded-full">
-                                {activeCount} / {ch.sources.length} 条有效
+                                {activeCount} / {ch.sources.length} <span className="hidden sm:inline">条有效</span>
                               </span>
-                              <span className="text-[10px] font-semibold bg-blue-50 text-blue-700 px-1.5 py-0.5 rounded max-w-28 truncate" title={(ch.tagIds || ch.groupIds || []).map(gId => tags.find(g => g.id === gId)?.name).filter(Boolean).join(", ")}>
+                              <span className="hidden sm:inline-block text-[10px] font-semibold bg-blue-50 text-blue-700 px-1.5 py-0.5 rounded max-w-28 truncate" title={(ch.tagIds || ch.groupIds || []).map(gId => tags.find(g => g.id === gId)?.name).filter(Boolean).join(", ")}>
                                 {(ch.tagIds || ch.groupIds || []).map(gId => tags.find(g => g.id === gId)?.name).filter(Boolean).join(", ") || "其它"}
                               </span>
 
@@ -2572,7 +2590,7 @@ export default function App() {
                           </div>
                         </div>
 
-                        <div className="flex gap-2.5">
+                        <div className="flex flex-wrap gap-2.5">
                           <button
                             onClick={() => lookupEPG(selectedChannel)}
                             disabled={epgLoading}
@@ -2680,7 +2698,7 @@ export default function App() {
                             </div>
                           )}
                           
-                          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 max-h-48 overflow-y-auto pt-1">
+                          <div className="grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-4 gap-2.5 max-h-48 overflow-y-auto pt-1">
                             {epgGuide.programs.map((p, idx) => (
                               <div key={idx} className="p-2 bg-white rounded-lg border border-indigo-100/40 flex flex-col justify-between">
                                 <span className="font-mono text-[9px] font-bold text-indigo-600">{p.time}</span>
@@ -2715,9 +2733,9 @@ export default function App() {
                           </div>
 
                           {selectedSourceIds.length > 0 && (
-                            <div className="flex items-center justify-between bg-emerald-50/80 border border-emerald-100 rounded-xl px-2.5 py-1.5 transition-all duration-200 animate-slide-in">
+                            <div className="flex flex-col sm:flex-row sm:items-center justify-between bg-emerald-50/80 border border-emerald-100 rounded-xl px-2.5 py-2 sm:py-1.5 gap-2 sm:gap-0 transition-all duration-200 animate-slide-in">
                               <span className="text-[10px] font-bold text-emerald-700">已选 {selectedSourceIds.length} 条线路</span>
-                              <div className="flex gap-1.5 animate-fade-in">
+                              <div className="flex flex-wrap gap-1.5 animate-fade-in w-full sm:w-auto">
                                 <button
                                   onClick={() => openBatchSourceEditModal()}
                                   className="bg-indigo-600 hover:bg-indigo-700 text-white text-[10px] font-bold px-2.5 py-1 rounded-lg transition shadow-xs cursor-pointer flex items-center gap-1"
@@ -2844,7 +2862,7 @@ export default function App() {
               {channelSubTab === "sources" && (
                 <div className="space-y-6 animate-fade-in" id="global_sources_pane">
                   {/* Top Stats Cards */}
-                  <div className="grid grid-cols-1 sm:grid-cols-4 gap-4" id="global_sources_stats">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4" id="global_sources_stats">
                     <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-xs flex items-center justify-between">
                       <div>
                         <span className="text-[10px] uppercase font-bold text-slate-400 tracking-wider">当前匹配总线路</span>
@@ -3063,7 +3081,7 @@ export default function App() {
                           </div>
                         ) : (
                           <div className="flex flex-col gap-2 pt-1">
-                            <div className="flex gap-2">
+                            <div className="flex gap-2 w-full md:w-auto">
                               <button
                                 onClick={runClientSideProbeTest}
                                 className="flex-1 py-2.5 bg-sky-600 hover:bg-sky-700 text-white font-extrabold text-[11px] rounded-xl transition cursor-pointer flex items-center justify-center gap-1.5 shrink-0"
@@ -3300,10 +3318,8 @@ export default function App() {
                                   />
                                 </th>
                                 <th className="py-4 px-3 w-48">所属电台频道</th>
-                                <th className="py-4 px-3">全量播放播放源链接</th>
-                                
-                                <th className="py-4 px-3 w-32">地区省份</th>
-                                <th className="py-4 px-3 w-32">网络连通状态</th>
+                                <th className="py-4 px-3 hidden md:table-cell">全量播放播放源链接</th>
+                                <th className="py-4 px-3 w-32 hidden sm:table-cell">网络连通状态</th>
                                 <th className="py-4 px-4 w-32 text-right">线路日常管理</th>
                               </tr>
                             </thead>
@@ -3338,7 +3354,7 @@ export default function App() {
                                       </div>
                                     </div>
                                   </td>
-                                  <td className="py-3.5 px-3 font-mono">
+                                  <td className="py-3.5 px-3 font-mono hidden md:table-cell">
                                     <div className="flex items-center gap-2">
                                       <span className="truncate max-w-sm block text-slate-500 select-all font-semibold" title={item.url}>{item.url}</span>
                                       <button 
@@ -3356,7 +3372,7 @@ export default function App() {
                                   </td>
                                   
                                   
-                                  <td className="py-3.5 px-3">
+                                  <td className="py-3.5 px-3 hidden sm:table-cell">
                                     <div className="flex items-center gap-2">
                                       <span className={`w-2 h-2 rounded-full ${
                                         item.status === "active" ? "bg-emerald-500 shadow-xs shadow-emerald-500" :
@@ -3808,7 +3824,7 @@ export default function App() {
                             <RefreshCw className="w-3 h-3 mr-1" /> {cfg.disabled ? "重试并重新启用同步" : "立即手动拉取并覆盖同步"}
                           </button>
                             
-                            <div className="flex gap-2">
+                            <div className="flex gap-2 w-full md:w-auto">
                               <button 
                                 onClick={() => {
                                   setEditingSync(cfg);
@@ -4370,7 +4386,7 @@ export default function App() {
                             </p>
                           </div>
                         </div>
-                        <div className="flex gap-2">
+                        <div className="flex gap-2 w-full md:w-auto">
                           <button 
                             onClick={(e) => { e.stopPropagation(); runCronJobManual(job.id); }}
                             className="px-3 py-1.5 bg-blue-50 text-blue-600 hover:bg-blue-100 font-semibold text-xs rounded-lg transition-colors"
@@ -4511,9 +4527,9 @@ export default function App() {
                         <thead>
                           <tr className="border-b border-slate-100 text-[10px] uppercase font-bold text-slate-400 tracking-wider">
                             <th className="py-3 px-2">备份名称 / 备注</th>
-                            <th className="py-3 px-2">容量规格</th>
-                            <th className="py-3 px-2">备份类型</th>
-                            <th className="py-3 px-2">生成时间</th>
+                            <th className="py-3 px-2 hidden sm:table-cell">容量规格</th>
+                            <th className="py-3 px-2 hidden md:table-cell">备份类型</th>
+                            <th className="py-3 px-2 hidden sm:table-cell">生成时间</th>
                             <th className="py-3 px-2 text-right">控制台操作</th>
                           </tr>
                         </thead>
@@ -4545,22 +4561,22 @@ export default function App() {
                                     {back.filename}
                                   </div>
                                 </td>
-                                <td className="py-3 px-2 font-mono">
+                                <td className="py-3 px-2 font-mono hidden sm:table-cell">
                                   <div className="text-[11px] font-bold text-slate-700">{formattedSize}</div>
                                   <div className="text-[10px] text-slate-400">
                                     {back.channelCount} 频道 ({back.groupCount} 分组)
                                   </div>
                                 </td>
-                                <td className="py-3 px-2">
+                                <td className="py-3 px-2 hidden md:table-cell">
                                   <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold ${
-                                    isManual 
+                                    isManual
                                       ? "bg-emerald-50 text-emerald-700 border border-emerald-100" 
                                       : "bg-blue-50 text-blue-700 border border-blue-100"
                                   }`}>
                                     {isManual ? "手动硬备份" : "系统自动化"}
                                   </span>
                                 </td>
-                                <td className="py-3 px-2 text-[11px] font-medium text-slate-500">
+                                <td className="py-3 px-2 text-[11px] font-medium text-slate-500 hidden sm:table-cell">
                                   {displayTime}
                                 </td>
                                 <td className="py-3 px-2 text-right space-x-1">
@@ -4744,7 +4760,7 @@ export default function App() {
                 <label className="flex justify-between items-center">
                   <span>EPG 节目匹配 ID (epgId) *</span>
                 </label>
-                <div className="flex gap-2">
+                <div className="flex gap-2 w-full md:w-auto">
                   <input 
                     type="text"
                     required
