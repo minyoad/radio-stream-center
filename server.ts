@@ -106,11 +106,49 @@ const SQLITE_DB_PATH = path.join(DATA_DIR, "radio_sqlite.db");
 let db: Database.Database;
 
 function initSqlite() {
-  db = new Database(SQLITE_DB_PATH);
-  
-  // Enable WAL mode for high performance concurrency and stability
-  db.pragma("journal_mode = WAL");
-  db.pragma("synchronous = NORMAL");
+  try {
+    db = new Database(SQLITE_DB_PATH);
+    
+    // Enable WAL mode for high performance concurrency and stability
+    db.pragma("journal_mode = WAL");
+    db.pragma("synchronous = NORMAL");
+  } catch (err: any) {
+    console.error("[SQLite Init Error] Database file may be corrupt:", err);
+    if (err.code === "SQLITE_CORRUPT" || err.message?.includes("corrupt") || err.message?.includes("malformed")) {
+      console.log("[SQLite Recovery] Attempting to recover from corrupt database file...");
+      try {
+        if (db) {
+          try { db.close(); } catch (_) {}
+        }
+        const corruptPath = SQLITE_DB_PATH + ".corrupt";
+        if (fs.existsSync(corruptPath)) {
+          fs.unlinkSync(corruptPath);
+        }
+        fs.renameSync(SQLITE_DB_PATH, corruptPath);
+        console.log(`[SQLite Recovery] Corrupt database moved to ${corruptPath}`);
+        
+        // Remove WAL and SHM files
+        const walPath = SQLITE_DB_PATH + "-wal";
+        if (fs.existsSync(walPath)) {
+          try { fs.unlinkSync(walPath); } catch (_) {}
+        }
+        const shmPath = SQLITE_DB_PATH + "-shm";
+        if (fs.existsSync(shmPath)) {
+          try { fs.unlinkSync(shmPath); } catch (_) {}
+        }
+        
+        db = new Database(SQLITE_DB_PATH);
+        db.pragma("journal_mode = WAL");
+        db.pragma("synchronous = NORMAL");
+        console.log("[SQLite Recovery] Fresh database initialized successfully!");
+      } catch (recoveryErr: any) {
+        console.error("[SQLite Recovery Error] Critical: Failed to recover/recreate database:", recoveryErr);
+        throw recoveryErr;
+      }
+    } else {
+      throw err;
+    }
+  }
 
   // Create tables structured for fast access
   db.exec(`
@@ -130,7 +168,9 @@ function initSqlite() {
       description TEXT,
       province TEXT,
       city TEXT,
-      category TEXT
+      category TEXT,
+      frequency TEXT,
+      gain REAL DEFAULT 1
     );
     CREATE TABLE IF NOT EXISTS sources (
       id TEXT PRIMARY KEY,
@@ -236,6 +276,20 @@ function initSqlite() {
     db.prepare("SELECT sortOrder FROM channels LIMIT 1").get();
   } catch (err) {
     db.exec("ALTER TABLE channels ADD COLUMN sortOrder INTEGER DEFAULT 0");
+  }
+
+  // Migration: Add frequency to channels table if it doesn't exist
+  try {
+    db.prepare("SELECT frequency FROM channels LIMIT 1").get();
+  } catch (err) {
+    db.exec("ALTER TABLE channels ADD COLUMN frequency TEXT");
+  }
+
+  // Migration: Add gain to channels table if it doesn't exist
+  try {
+    db.prepare("SELECT gain FROM channels LIMIT 1").get();
+  } catch (err) {
+    db.exec("ALTER TABLE channels ADD COLUMN gain REAL DEFAULT 1");
   }
 
   // Seed default cron jobs
@@ -2127,6 +2181,165 @@ async function startServer() {
     res.json(results);
   });
 
+  // Public query API: Channel query with pagination, tag filtering, searching, etc.
+  app.get("/api/public/channels", (req, res) => {
+    try {
+      const page = Math.max(1, parseInt(String(req.query.page || 1)) || 1);
+      const pageSize = Math.min(100, Math.max(1, parseInt(String(req.query.pageSize || 20)) || 20));
+      const keyword = String(req.query.keyword || "").trim().toLowerCase();
+      const tagId = String(req.query.tagId || "").trim();
+      const tagName = String(req.query.tagName || "").trim().toLowerCase();
+      const province = String(req.query.province || "").trim().toLowerCase();
+      const city = String(req.query.city || "").trim().toLowerCase();
+      const category = String(req.query.category || "").trim().toLowerCase();
+      const status = String(req.query.status || "").trim().toLowerCase();
+
+      // Filter from in-memory channels
+      let filtered = channels;
+
+      if (keyword) {
+        filtered = filtered.filter(ch => 
+          ch.name.toLowerCase().includes(keyword) || 
+          (ch.alias && ch.alias.some(a => a.toLowerCase().includes(keyword)))
+        );
+      }
+
+      if (tagId) {
+        filtered = filtered.filter(ch => {
+          const tIds = ch.tagIds || ch.groupIds || [];
+          return tIds.includes(tagId);
+        });
+      }
+
+      if (tagName) {
+        const matchingTags = tags.filter(t => t.name.toLowerCase().includes(tagName));
+        const matchingTagIds = matchingTags.map(t => t.id);
+        filtered = filtered.filter(ch => {
+          const tIds = ch.tagIds || ch.groupIds || [];
+          return tIds.some(id => matchingTagIds.includes(id));
+        });
+      }
+
+      if (province) {
+        filtered = filtered.filter(ch => ch.province && ch.province.toLowerCase().includes(province));
+      }
+
+      if (city) {
+        filtered = filtered.filter(ch => ch.city && ch.city.toLowerCase().includes(city));
+      }
+
+      if (category) {
+        filtered = filtered.filter(ch => ch.category && ch.category.toLowerCase().includes(category));
+      }
+
+      if (status) {
+        filtered = filtered.filter(ch => 
+          ch.sources && ch.sources.some(s => s.status.toLowerCase() === status)
+        );
+      }
+
+      const total = filtered.length;
+      const totalPages = Math.ceil(total / pageSize);
+      const startIdx = (page - 1) * pageSize;
+      const paginatedData = filtered.slice(startIdx, startIdx + pageSize).map(ch => {
+        return {
+          id: ch.id,
+          name: ch.name,
+          logo: ch.logo || "",
+          tagIds: ch.tagIds || ch.groupIds || [],
+          alias: ch.alias || [],
+          epgId: ch.epgId || "",
+          description: ch.description || "",
+          province: ch.province || "",
+          city: ch.city || "",
+          category: ch.category || "",
+          frequency: ch.frequency || "",
+          gain: ch.gain || 1,
+          sourcesCount: ch.sources ? ch.sources.length : 0
+        };
+      });
+
+      res.json({
+        success: true,
+        page,
+        pageSize,
+        total,
+        totalPages,
+        data: paginatedData
+      });
+    } catch (err: any) {
+      console.error("Public channels API error", err);
+      res.status(500).json({ success: false, error: err.message || "Internal Server Error" });
+    }
+  });
+
+  // Public query API: Get sources/play lines for a specific channel
+  app.get("/api/public/channels/:id/sources", (req, res) => {
+    try {
+      const { id } = req.params;
+      const status = String(req.query.status || "").trim().toLowerCase();
+
+      const ch = channels.find(c => c.id === id);
+      if (!ch) {
+        return res.status(404).json({ success: false, error: "频道不存在" });
+      }
+
+      let srcList = ch.sources || [];
+      if (status) {
+        srcList = srcList.filter(s => s.status.toLowerCase() === status);
+      }
+
+      res.json({
+        success: true,
+        channelId: ch.id,
+        channelName: ch.name,
+        sources: srcList.map(s => ({
+          id: s.id,
+          url: s.url,
+          status: s.status || "unknown",
+          latency: s.latency,
+          lastChecked: s.lastChecked
+        }))
+      });
+    } catch (err: any) {
+      console.error("Public sources API error", err);
+      res.status(500).json({ success: false, error: err.message || "Internal Server Error" });
+    }
+  });
+
+  app.get("/api/public/channels/:id/play-lines", (req, res) => {
+    try {
+      const { id } = req.params;
+      const status = String(req.query.status || "").trim().toLowerCase();
+
+      const ch = channels.find(c => c.id === id);
+      if (!ch) {
+        return res.status(404).json({ success: false, error: "频道不存在" });
+      }
+
+      let srcList = ch.sources || [];
+      if (status) {
+        srcList = srcList.filter(s => s.status.toLowerCase() === status);
+      }
+
+      res.json({
+        success: true,
+        channelId: ch.id,
+        channelName: ch.name,
+        sources: srcList.map(s => ({
+          id: s.id,
+          url: s.url,
+          status: s.status || "unknown",
+          latency: s.latency,
+          lastChecked: s.lastChecked
+        }))
+      });
+    } catch (err: any) {
+      console.error("Public play-lines API error", err);
+      res.status(500).json({ success: false, error: err.message || "Internal Server Error" });
+    }
+  });
+
 
 
   const translateTVAtlasName = (enName: string) => {
@@ -2861,7 +3074,13 @@ async function startServer() {
       const importTx = db.transaction((data) => {
         for (const item of data) {
           const name = item.name || item.名称 || item.channel || item.Title || item.电台名称 || "未知频道";
-          const url = item.url || item.url || item.链接 || item.URL || item.Url || item.直播流ID;
+          let url = item.url || item.链接 || item.URL || item.Url || item.直播流ID;
+          if (!url || (!url.startsWith('http://') && !url.startsWith('https://'))) {
+            const idToUse = item.电台ID || url || item.id;
+            if (idToUse) {
+              url = `https://lhttp.qingting.fm/live/${idToUse}/64k.mp3`;
+            }
+          }
           const categoryRaw = item.category || item.分类 || item.group || item.Group || item.所属分类 || "未分类";
           const logo = item.logo || item.图标 || item.Logo || item.封面图 || "";
           const epgId = item.epgId || item.epgId || generateDefaultEpgId(name);
@@ -3108,7 +3327,13 @@ async function startServer() {
                 if (!ch.city && row['所属城市']) ch.city = row['所属城市'];
              }
 
-             const url = row['直播流ID'] || row['url'] || row['stream'];
+             let url = row['直播流ID'] || row['url'] || row['stream'];
+             if (!url || (!url.startsWith('http://') && !url.startsWith('https://'))) {
+                 const idToUse = row['电台ID'] || url || row['id'];
+                 if (idToUse) {
+                     url = `https://lhttp.qingting.fm/live/${idToUse}/64k.mp3`;
+                 }
+             }
              if (url) {
                  if (!ch.sources.some((s:any) => s.url === url)) {
                      ch.sources.push({
@@ -3126,7 +3351,12 @@ async function startServer() {
 
       })();
       
-      res.json({ success: true, message: `成功导入 ${importedChannelsCount} 个新频道, ${importedSourcesCount} 个新播放源` });
+      res.json({
+        success: true,
+        channels: importedChannelsCount,
+        sources: importedSourcesCount,
+        message: `成功导入 ${importedChannelsCount} 个新频道, ${importedSourcesCount} 个新播放源`
+      });
     } catch (e: any) {
        console.error("Import error", e);
        res.status(500).json({ error: e.message || "导入失败" });
@@ -3967,36 +4197,30 @@ ${JSON.stringify(scoredList.map(c => ({ epgId: c.epgId, names: c.displayNames, s
     const playlistRows: string[] = ["#EXTM3U"];
     const maxLimit = limit ? parseInt(String(limit)) : 10;
 
-    let queryParams: any[] = [];
-    let catQuery = "SELECT * FROM tags ORDER BY sortOrder ASC";
+    let filteredTags = tags;
     if (category) {
-      catQuery = "SELECT * FROM tags WHERE name = ? ORDER BY sortOrder ASC";
-      queryParams.push(String(category));
+      filteredTags = tags.filter(t => t.name === String(category));
     }
-    
-    const groups = db.prepare(catQuery).all(...queryParams) as Group[];
-    const allChannels = db.prepare("SELECT * FROM channels ORDER BY sortOrder ASC").all() as Channel[];
-    
-    groups.forEach((group) => {
+
+    filteredTags.forEach((group) => {
       const groupName = group.name;
-      const channels = allChannels.filter(c => {
-        try { const gids = JSON.parse((c.tagIds || c.groupIds) as unknown as string); return gids.includes(group.id); } catch(e) { return false; }
+      const chs = channels.filter(c => {
+        const tIds = c.tagIds || c.groupIds || [];
+        return tIds.includes(group.id);
       });
       
-      channels.forEach((channel) => {
-        const sources = db.prepare("SELECT * FROM sources WHERE channelId = ?").all(channel.id) as LiveSource[];
-        let processedSources = getPlayableSources(sources);
+      chs.forEach((channel) => {
+        let processedSources = getPlayableSources(channel.sources || []);
         
         let count = 0;
         processedSources.forEach((source) => {
           if (count >= maxLimit) return;
           if (status && source.status !== String(status)) return;
           
-          
           const suffix = "";
           const channelDisplayName = `${channel.name}${suffix}`;
           
-          playlistRows.push(`#EXTINF:-1 tvg-id="${channel.epgId}" tvg-name="${channel.name}" tvg-logo="${channel.logo}" group-title="${groupName}",${channelDisplayName}`);
+          playlistRows.push(`#EXTINF:-1 tvg-id="${channel.epgId || ''}" tvg-name="${channel.name}" tvg-logo="${channel.logo || ''}" group-title="${groupName}",${channelDisplayName}`);
           playlistRows.push(source.url);
           count++;
         });
@@ -4006,39 +4230,34 @@ ${JSON.stringify(scoredList.map(c => ({ epgId: c.epgId, names: c.displayNames, s
     res.setHeader("Content-Type", "application/x-mpegurl");
     res.setHeader("Content-Disposition", "attachment; filename=\"radio_custom.m3u\"");
     res.send(playlistRows.join("\n"));
-});
-// TXT (TVBox compatible) format
+  });
+
+  // TXT (TVBox compatible) format
   app.get("/api/export/txt", async (req, res) => {
     const { category, status, limit } = req.query;
     
     const maxLimit = limit ? parseInt(String(limit)) : 10;
     const exportMap = new Map<string, string[]>();
 
-    let queryParams: any[] = [];
-    let catQuery = "SELECT * FROM tags ORDER BY sortOrder ASC";
+    let filteredTags = tags;
     if (category) {
-      catQuery = "SELECT * FROM tags WHERE name = ? ORDER BY sortOrder ASC";
-      queryParams.push(String(category));
+      filteredTags = tags.filter(t => t.name === String(category));
     }
     
-    const groups = db.prepare(catQuery).all(...queryParams) as Group[];
-    const allChannels = db.prepare("SELECT * FROM channels ORDER BY sortOrder ASC").all() as Channel[];
-    
-    groups.forEach((group) => {
+    filteredTags.forEach((group) => {
       const groupName = group.name;
-      const channels = allChannels.filter(c => {
-        try { const gids = JSON.parse(c.groupIds as unknown as string); return gids.includes(group.id); } catch(e) { return false; }
+      const chs = channels.filter(c => {
+        const tIds = c.tagIds || c.groupIds || [];
+        return tIds.includes(group.id);
       });
       
-      channels.forEach((channel) => {
-        const sources = db.prepare("SELECT * FROM sources WHERE channelId = ?").all(channel.id) as LiveSource[];
-        let processedSources = getPlayableSources(sources);
+      chs.forEach((channel) => {
+        let processedSources = getPlayableSources(channel.sources || []);
         
         let count = 0;
         processedSources.forEach((source) => {
           if (count >= maxLimit) return;
           if (status && source.status !== String(status)) return;
-          
           
           const catName = groupName;
           if (!exportMap.has(catName)) {
@@ -4064,7 +4283,7 @@ ${JSON.stringify(scoredList.map(c => ({ epgId: c.epgId, names: c.displayNames, s
     res.setHeader("Content-Type", "text/plain; charset=utf-8");
     res.setHeader("Content-Disposition", "attachment; filename=\"radio_custom.txt\"");
     res.send(lines.join("\n"));
-});
+  });
 // Dynamic EPG XML TV interface
   // Returns generic valid XMLTV layout for connected players matching epgIds
 

@@ -2525,11 +2525,6 @@ export default function App() {
                     <Trash2 className="w-3.5 h-3.5 mr-1" />
                     清理失效源
                   </button>
-                  <label className="px-4 py-2 bg-slate-600 hover:bg-slate-700 text-white text-[11px] font-bold rounded-xl shadow-md transition cursor-pointer flex items-center">
-                    <Upload className="w-3.5 h-3.5 mr-1" />
-                    导入 TVAtlas
-                    <input type="file" className="hidden" accept=".json" onChange={handleTVAtlasImport} />
-                  </label>
                   <button 
                     onClick={openChannelCreate}
                     className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-[11px] font-bold rounded-xl shadow-md transition cursor-pointer flex items-center"
@@ -3818,19 +3813,26 @@ export default function App() {
                       className="w-full flex-1 p-4 border border-slate-200 rounded-xl font-mono text-xs bg-slate-50 focus:outline-none focus:border-indigo-500 text-slate-700 leading-normal"
                     />
 
-                    <div className="flex flex-col sm:flex-row gap-3">
+                    <div className="flex flex-col gap-3">
                       <button
                         onClick={handlePasteImport}
                         disabled={isImportingText}
-                        className="flex-1 py-3 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs rounded-xl shadow transition duration-150 cursor-pointer text-center"
+                        className="w-full py-3 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs rounded-xl shadow transition duration-150 cursor-pointer text-center"
                       >
                         {isImportingText ? "正在解析文件并写入缓存..." : "开始批量一键导入文本播放源"}
                       </button>
-                      <label className="flex-1 py-3 bg-slate-600 hover:bg-slate-700 text-white font-bold text-xs rounded-xl shadow transition duration-150 cursor-pointer text-center flex items-center justify-center">
-                        <Upload className="w-4 h-4 mr-2" />
-                        导入大规模电台数据 (CSV/JSON 天际)
-                        <input type="file" className="hidden" accept=".json,.csv" onChange={handleBulkDataImport} />
-                      </label>
+                      <div className="flex flex-col sm:flex-row gap-3">
+                        <label className="flex-1 py-3 bg-slate-600 hover:bg-slate-700 text-white font-bold text-xs rounded-xl shadow transition duration-150 cursor-pointer text-center flex items-center justify-center">
+                          <Upload className="w-4 h-4 mr-2" />
+                          导入大规模数据 (CSV/JSON)
+                          <input type="file" className="hidden" accept=".json,.csv" onChange={handleBulkDataImport} />
+                        </label>
+                        <label className="flex-1 py-3 bg-slate-500 hover:bg-slate-600 text-white font-bold text-xs rounded-xl shadow transition duration-150 cursor-pointer text-center flex items-center justify-center">
+                          <Upload className="w-4 h-4 mr-2" />
+                          导入 TVAtlas 数据
+                          <input type="file" className="hidden" accept=".json" onChange={handleTVAtlasImport} />
+                        </label>
+                      </div>
                     </div>
                   </div>
                 </div>
