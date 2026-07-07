@@ -163,7 +163,13 @@ export default function App() {
     newGroupsString: "",
     logo: "",
     alias: "",
-    epgId: ""
+    epgId: "",
+    description: "",
+    province: "",
+    city: "",
+    category: "",
+    frequency: "",
+    gain: 1
   });
 
   const [isSourceModalOpen, setIsSourceModalOpen] = useState(false);
@@ -897,7 +903,13 @@ export default function App() {
         groupIds: finalGroupIds,
         logo: channelForm.logo,
         alias: channelForm.alias.split(",").map(s => s.trim()).filter(Boolean),
-        epgId: channelForm.epgId
+        epgId: channelForm.epgId,
+        description: channelForm.description,
+        province: channelForm.province,
+        city: channelForm.city,
+        category: channelForm.category,
+        frequency: channelForm.frequency,
+        gain: channelForm.gain
       };
 
       const res = await fetch(endpoint, {
@@ -918,6 +930,134 @@ export default function App() {
     } catch (e) {
       showFeedback("error", "添加/更新频道发生故障");
     }
+  };
+
+
+  
+  const handleBulkDataImport = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const name = file.name.toLowerCase();
+    const isCsv = name.endsWith(".csv");
+    const isJson = name.endsWith(".json");
+    if (!isCsv && !isJson) {
+       showFeedback("error", "请上传 CSV 或 JSON 格式的文件");
+       return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = async (e) => {
+      const content = e.target?.result as string;
+      triggerConfirm(
+        "批量导入电台数据",
+        `您确定要从文件 "${file.name}" 中导入数据吗？大规模 CSV 导入将在后台事务中处理。`,
+        async () => {
+          showFeedback("info", "开始上传解析...");
+          try {
+            const res = await fetch("/api/import/csv-json", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                 content,
+                 format: isCsv ? "csv" : "json"
+              })
+            });
+            const result = await res.json();
+            if (result.error) {
+              showFeedback("error", "导入失败: " + result.error);
+            } else {
+              showFeedback("success", `导入成功！新增 ${result.channels} 个频道，${result.sources} 个播放源。`);
+              fetchData();
+            }
+          } catch (err: any) {
+            showFeedback("error", "导入发生网络异常");
+          }
+        }
+      );
+    };
+    reader.readAsText(file);
+    e.target.value = "";
+  };
+
+  
+  const handleCsvJsonImport = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    
+    try {
+      const text = await file.text();
+      const format = file.name.toLowerCase().endsWith('.csv') ? 'csv' : 'json';
+      
+      triggerConfirm(
+        `导入 ${format.toUpperCase()} 数据`,
+        `确认导入 ${file.name} 吗？`,
+        async () => {
+          showFeedback("info", "正在导入并合并...");
+          try {
+            const res = await fetch("/api/import/csv-json", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ content: text, format })
+            });
+            const result = await res.json();
+            if (result.error) {
+              showFeedback("error", "导入失败: " + result.error);
+            } else {
+              showFeedback("success", result.message || "导入成功！");
+              fetchData();
+            }
+          } catch (err: any) {
+            showFeedback("error", "导入时发生网络异常");
+          }
+        }
+      );
+    } catch (e: any) {
+       showFeedback("error", "读取文件失败: " + e.message);
+    }
+    e.target.value = "";
+  };
+
+  const handleTVAtlasImport = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    
+    try {
+      const text = await file.text();
+      let data = JSON.parse(text);
+      if (!Array.isArray(data)) {
+        showFeedback("error", "文件格式错误，期待包含频道的 JSON 数组。");
+        return;
+      }
+      
+      triggerConfirm(
+        "导入 TVAtlas 数据",
+        `确认导入这 ${data.length} 个电台频道吗？这将在后台自动合并、去重。`,
+        async () => {
+          showFeedback("info", "开始导入并合并...");
+          try {
+            const res = await fetch("/api/channels/import-tvatlas", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify(data)
+            });
+            const result = await res.json();
+            if (result.error) {
+              showFeedback("error", "导入失败: " + result.error);
+            } else {
+              showFeedback("success", result.message || "导入成功！");
+              fetchData();
+              
+            }
+          } catch (err: any) {
+            showFeedback("error", "导入时发生网络异常");
+          }
+        }
+      );
+    } catch (err) {
+      showFeedback("error", "文件解析失败，请确保它是一个合法的 JSON 文件。");
+    }
+    
+    e.target.value = '';
   };
 
   const handleDeleteChannel = (id: string) => {
@@ -1372,7 +1512,13 @@ export default function App() {
       newGroupsString: "",
       logo: "https://vfiles.gtimg.cn/vupload/20210729/cf2b0d1627514936398.png",
       alias: "",
-      epgId: ""
+      epgId: "",
+      description: "",
+      province: "",
+      city: "",
+      category: "",
+      frequency: "",
+      gain: 1
     });
     setIsChannelModalOpen(true);
   };
@@ -1387,7 +1533,13 @@ export default function App() {
       newGroupsString: "",
       logo: ch.logo || "",
       alias: ch.alias ? ch.alias.join(", ") : "",
-      epgId: ch.epgId || ""
+      epgId: ch.epgId || "",
+      description: ch.description || "",
+      province: ch.province || "",
+      city: ch.city || "",
+      category: ch.category || "",
+      frequency: ch.frequency || "",
+      gain: ch.gain || 1
     });
     setIsChannelModalOpen(true);
   };
@@ -2373,6 +2525,11 @@ export default function App() {
                     <Trash2 className="w-3.5 h-3.5 mr-1" />
                     清理失效源
                   </button>
+                  <label className="px-4 py-2 bg-slate-600 hover:bg-slate-700 text-white text-[11px] font-bold rounded-xl shadow-md transition cursor-pointer flex items-center">
+                    <Upload className="w-3.5 h-3.5 mr-1" />
+                    导入 TVAtlas
+                    <input type="file" className="hidden" accept=".json" onChange={handleTVAtlasImport} />
+                  </label>
                   <button 
                     onClick={openChannelCreate}
                     className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-[11px] font-bold rounded-xl shadow-md transition cursor-pointer flex items-center"
@@ -2509,6 +2666,12 @@ export default function App() {
                                 <p className="text-xs font-bold text-slate-800 flex items-center gap-1.5 truncate">
                                   {ch.name}
                                 </p>
+                                {(ch.description || ch.province || ch.city || ch.category || ch.frequency) && (
+                                  <p className="text-[10px] text-slate-500 font-normal truncate mt-0.5">
+                                    {[ch.frequency, ch.province, ch.city, ch.category].filter(Boolean).join(" · ")}
+                                    {ch.description && (ch.frequency || ch.province || ch.city || ch.category ? " | " : "") + ch.description}
+                                  </p>
+                                )}
                                 <p className="text-[10px] text-slate-400 mt-0.5 truncate">
                                   EPG ID: <span className="font-mono text-[9px] text-slate-500 font-bold bg-slate-100 px-1 py-0.5 rounded">{ch.epgId}</span>
                                 </p>
@@ -2572,7 +2735,7 @@ export default function App() {
                       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 pb-4 border-b border-slate-100">
                         <div className="flex items-center gap-3">
                           <img 
-                            src={selectedChannel.logo} 
+                            src={selectedChannel.logo || "https://images.unsplash.com/photo-1598257006458-087169a1f08d?auto=format&fit=crop&w=48&h=48&q=80"} 
                             alt="logo" 
                             className="w-10 h-10 rounded-xl object-contain bg-slate-50 border p-1"
                             onError={(e)=>{ (e.target as HTMLImageElement).src="https://images.unsplash.com/photo-1598257006458-087169a1f08d?auto=format&fit=crop&w=48&h=48&q=80" }}
@@ -3344,7 +3507,7 @@ export default function App() {
                                   </td>
                                   <td className="py-3.5 px-3">
                                     <div className="flex items-center gap-2">
-                                      {item.channelLogo ? (
+                                      {item.channelLogo && item.channelLogo.trim() !== "" ? (
                                         <img src={item.channelLogo} alt={item.channelName} className="w-5.5 h-5.5 object-contain bg-slate-50 rounded border border-slate-100 p-0.5 shrink-0" referrerPolicy="no-referrer" />
                                       ) : (
                                         <div className="w-5.5 h-5.5 rounded bg-slate-100 text-[10px] font-black flex items-center justify-center text-slate-400 font-mono p-0.5">FM</div>
@@ -3655,13 +3818,20 @@ export default function App() {
                       className="w-full flex-1 p-4 border border-slate-200 rounded-xl font-mono text-xs bg-slate-50 focus:outline-none focus:border-indigo-500 text-slate-700 leading-normal"
                     />
 
-                    <button
-                      onClick={handlePasteImport}
-                      disabled={isImportingText}
-                      className="w-full py-3 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs rounded-xl shadow transition duration-150 cursor-pointer text-center"
-                    >
-                      {isImportingText ? "正在解析文件并写入缓存..." : "开始批量一键导入直播播放源"}
-                    </button>
+                    <div className="flex flex-col sm:flex-row gap-3">
+                      <button
+                        onClick={handlePasteImport}
+                        disabled={isImportingText}
+                        className="flex-1 py-3 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs rounded-xl shadow transition duration-150 cursor-pointer text-center"
+                      >
+                        {isImportingText ? "正在解析文件并写入缓存..." : "开始批量一键导入文本播放源"}
+                      </button>
+                      <label className="flex-1 py-3 bg-slate-600 hover:bg-slate-700 text-white font-bold text-xs rounded-xl shadow transition duration-150 cursor-pointer text-center flex items-center justify-center">
+                        <Upload className="w-4 h-4 mr-2" />
+                        导入大规模电台数据 (CSV/JSON 天际)
+                        <input type="file" className="hidden" accept=".json,.csv" onChange={handleBulkDataImport} />
+                      </label>
+                    </div>
                   </div>
                 </div>
 
@@ -4054,6 +4224,21 @@ export default function App() {
                 <div className="pt-4 border-t border-slate-800 flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4 w-full">
                     <div className="space-y-0.5">
+                      
+                    <div className="space-y-0.5">
+                      <span className="text-[10px] text-slate-500 font-mono uppercase tracking-wider">电台数据 JSON 输出</span>
+                      <p className="text-xs font-mono text-emerald-400 truncate">{getFullHostUrl()}/api/export/radio.json</p>
+                      <button
+                        onClick={() => {
+                          copyTextToClipboard(`${getFullHostUrl()}/api/export/radio.json`);
+                          showFeedback("success", "已复制电台数据输出接口链接");
+                        }}
+                        className="mt-1 bg-slate-100 hover:bg-slate-200 text-slate-600 text-[10px] px-2 py-1 rounded transition w-full text-center"
+                      >
+                        复制接口地址
+                      </button>
+                    </div>
+
                       <span className="text-[10px] text-slate-500 font-mono uppercase tracking-wider">整合输出 XMLTV EPG 接口</span>
                       <p className="text-xs font-mono text-emerald-400 truncate">{getFullHostUrl()}/api/export/epg.xml</p>
                       <button
@@ -4067,6 +4252,21 @@ export default function App() {
                       </button>
                     </div>
                     <div className="space-y-0.5">
+                      
+                    <div className="space-y-0.5">
+                      <span className="text-[10px] text-slate-500 font-mono uppercase tracking-wider">电台数据 JSON 输出</span>
+                      <p className="text-xs font-mono text-emerald-400 truncate">{getFullHostUrl()}/api/export/radio.json</p>
+                      <button
+                        onClick={() => {
+                          copyTextToClipboard(`${getFullHostUrl()}/api/export/radio.json`);
+                          showFeedback("success", "已复制电台数据输出接口链接");
+                        }}
+                        className="mt-1 bg-slate-100 hover:bg-slate-200 text-slate-600 text-[10px] px-2 py-1 rounded transition w-full text-center"
+                      >
+                        复制接口地址
+                      </button>
+                    </div>
+
                       <span className="text-[10px] text-slate-500 font-mono uppercase tracking-wider">整合输出 XMLTV EPG.XML.GZ 压缩接口</span>
                       <p className="text-xs font-mono text-emerald-400 truncate">{getFullHostUrl()}/api/export/epg.xml.gz</p>
                       <button
@@ -4692,13 +4892,14 @@ export default function App() {
       {/* 1. Modal Dialog: Create/Update Channel */}
       {isChannelModalOpen && (
         <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 font-sans" id="channel_modal">
-          <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl border border-slate-100 space-y-5 flex flex-col animate-fade-in font-sans">
-            <div className="flex justify-between items-center">
-              <h3 className="text-sm font-bold text-slate-800">{editingChannel ? "修改 电台 频道元数据" : "建立新收录 电台 频道"}</h3>
-              <button className="text-slate-400 hover:text-slate-600 font-bold font-sans" onClick={()=>setIsChannelModalOpen(false)}>✕</button>
+          <div className="bg-white rounded-2xl max-w-md w-full shadow-2xl border border-slate-100 flex flex-col animate-fade-in font-sans max-h-[90vh]">
+            <div className="flex justify-between items-center px-6 py-5 border-b border-slate-100 flex-shrink-0">
+              <h3 className="text-sm font-bold text-slate-800">{editingChannel ? "修改电台元数据" : "建立新收录电台"}</h3>
+              <button type="button" className="text-slate-400 hover:text-slate-600 font-bold font-sans" onClick={()=>setIsChannelModalOpen(false)}>✕</button>
             </div>
             
-            <form onSubmit={handleSaveChannel} className="space-y-4 text-xs font-semibold text-slate-600">
+            <div className="p-6 overflow-y-auto flex-1">
+              <form id="channelForm" onSubmit={handleSaveChannel} className="space-y-4 text-xs font-semibold text-slate-600">
               <div className="space-y-1.5 font-sans">
                 <label>频道标准中文名称 (Standard Name) *</label>
                 <input 
@@ -4711,6 +4912,73 @@ export default function App() {
                 />
               </div>
 
+              <div className="space-y-1.5 font-sans">
+                <label>电台描述 (Description)</label>
+                <textarea
+                  value={channelForm.description || ""}
+                  onChange={(e)=>setChannelForm({...channelForm, description: e.target.value})}
+                  placeholder="如: 中国国际广播电台"
+                  rows={2}
+                  className="w-full text-xs p-2.5 border border-slate-200 rounded-xl focus:border-indigo-500 bg-slate-50 focus:outline-none placeholder-slate-400 text-slate-800 font-sans resize-none"
+                />
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="space-y-1.5 font-sans">
+                  <label>所属分类 (Category)</label>
+                  <input type="text"
+                    list="category-options"
+                    value={channelForm.category || ""}
+                    onChange={(e)=>setChannelForm({...channelForm, category: e.target.value})}
+                    placeholder="如: 新闻 / 音乐"
+                    className="w-full text-xs p-2.5 border border-slate-200 rounded-xl focus:border-indigo-500 bg-slate-50 focus:outline-none placeholder-slate-400 text-slate-800 font-sans"
+                  />
+                  <datalist id="category-options">
+                    {tags.filter(t => t.name !== "全部" && t.name !== "未分组").map(t => (
+                      <option key={t.id} value={t.name} />
+                    ))}
+                  </datalist>
+                </div>
+                <div className="space-y-1.5 font-sans">
+                  <label>所属省份 (Province)</label>
+                  <input type="text"
+                    value={channelForm.province || ""}
+                    onChange={(e)=>setChannelForm({...channelForm, province: e.target.value})}
+                    placeholder="如: 北京"
+                    className="w-full text-xs p-2.5 border border-slate-200 rounded-xl focus:border-indigo-500 bg-slate-50 focus:outline-none placeholder-slate-400 text-slate-800 font-sans"
+                  />
+                </div>
+                
+                <div className="space-y-1.5 font-sans">
+                  <label>电台频率 (Frequency)</label>
+                  <input type="text"
+                    value={channelForm.frequency || ""}
+                    onChange={(e)=>setChannelForm({...channelForm, frequency: e.target.value})}
+                    placeholder="如: FM104"
+                    className="w-full text-xs p-2.5 border border-slate-200 rounded-xl focus:border-indigo-500 bg-slate-50 focus:outline-none placeholder-slate-400 text-slate-800 font-sans"
+                  />
+                </div>
+                <div className="space-y-1.5 font-sans">
+                  <label>电台音量增益 (Gain)</label>
+                  <input type="number" step="0.1"
+                    value={channelForm.gain ?? 1}
+                    onChange={(e)=>setChannelForm({...channelForm, gain: parseFloat(e.target.value) || 1})}
+                    placeholder="如: 1"
+                    className="w-full text-xs p-2.5 border border-slate-200 rounded-xl focus:border-indigo-500 bg-slate-50 focus:outline-none placeholder-slate-400 text-slate-800 font-sans"
+                  />
+                </div>
+
+                <div className="space-y-1.5 font-sans">
+                  <label>所属城市 (City)</label>
+                  <input type="text"
+                    value={channelForm.city || ""}
+                    onChange={(e)=>setChannelForm({...channelForm, city: e.target.value})}
+                    placeholder="如: 北京"
+                    className="w-full text-xs p-2.5 border border-slate-200 rounded-xl focus:border-indigo-500 bg-slate-50 focus:outline-none placeholder-slate-400 text-slate-800 font-sans"
+                  />
+                </div>
+              </div>
+
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div className="space-y-1.5 font-sans">
                   <label>关联直播标签 (选择一个或多个分组) *</label>
@@ -4718,7 +4986,7 @@ export default function App() {
                     {tags.map((g) => {
                       const isChecked = channelForm.groupIds.includes(g.id);
                       return (
-                        <label key={g.id} className="flex items-center gap-2 cursor-pointer py-0.5 hover:bg-slate-100/50 rounded px-1.5 select-none text-slate-700">
+                        <label key={g.id} className={`flex items-center gap-2 cursor-pointer py-1.5 rounded-lg px-2.5 select-none transition ${isChecked ? 'bg-indigo-50 border border-indigo-100' : 'hover:bg-slate-100/80 border border-transparent'}`}>
                           <input
                             type="checkbox"
                             checked={isChecked}
@@ -4732,9 +5000,9 @@ export default function App() {
                               }
                               setChannelForm({ ...channelForm, groupIds: newIds });
                             }}
-                            className="rounded text-indigo-600 focus:ring-indigo-500 w-3.5 h-3.5"
+                            className="rounded text-indigo-600 focus:ring-indigo-500 w-3.5 h-3.5 border-slate-300"
                           />
-                          <span className="text-[11px] text-slate-700 font-bold">{g.name}</span>
+                          <span className={`text-[11px] font-bold ${isChecked ? 'text-indigo-700' : 'text-slate-700'}`}>{g.name}</span>
                         </label>
                       );
                     })}
@@ -4836,22 +5104,24 @@ export default function App() {
                 <p className="text-[10px] text-slate-400 font-medium font-sans">导入不同直播源时，只要名字撞到了这些别名，就会自动归为此频道的源。</p>
               </div>
 
-              <div className="flex gap-3 pt-3">
-                <button 
-                  type="button" 
-                  onClick={()=>setIsChannelModalOpen(false)}
-                  className="w-1/3 py-2.5 border border-slate-200 hover:bg-slate-50 text-slate-600 rounded-xl cursor-pointer text-center font-bold font-sans"
-                >
-                  取消
-                </button>
-                <button 
-                  type="submit" 
-                  className="w-2/3 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-slate-50 rounded-xl cursor-pointer text-center font-bold font-sans shadow-md"
-                >
-                  保存设置
-                </button>
-              </div>
-            </form>
+              </form>
+            </div>
+            <div className="flex gap-3 px-6 py-5 border-t border-slate-100 bg-slate-50/50 rounded-b-2xl flex-shrink-0">
+              <button 
+                type="button" 
+                onClick={()=>setIsChannelModalOpen(false)}
+                className="w-1/3 py-2.5 border border-slate-200 hover:bg-slate-50 text-slate-600 rounded-xl cursor-pointer text-center font-bold font-sans bg-white"
+              >
+                取消
+              </button>
+              <button 
+                type="submit" 
+                form="channelForm"
+                className="w-2/3 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-slate-50 rounded-xl cursor-pointer text-center font-bold font-sans shadow-md"
+              >
+                保存设置
+              </button>
+            </div>
           </div>
         </div>
       )}

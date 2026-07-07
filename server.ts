@@ -1,4 +1,5 @@
 import express from "express";
+import { parse as parseCSV } from "csv-parse/sync";
 import path from "path";
 import fs from "fs";
 import { createServer as createViteServer } from "vite";
@@ -37,6 +38,12 @@ interface Channel {
   groupIds?: string[];
   alias: string[];
   epgId: string;
+  description?: string;
+  province?: string;
+  city?: string;
+  category?: string;
+  frequency?: string;
+  gain?: number;
   sources: LiveSource[];
 }
 
@@ -119,7 +126,11 @@ function initSqlite() {
       sortOrder INTEGER DEFAULT 0,
       tagIds TEXT,
       alias TEXT,
-      epgId TEXT
+      epgId TEXT,
+      description TEXT,
+      province TEXT,
+      city TEXT,
+      category TEXT
     );
     CREATE TABLE IF NOT EXISTS sources (
       id TEXT PRIMARY KEY,
@@ -186,7 +197,7 @@ function initSqlite() {
           sortOrder INTEGER DEFAULT 0
         );
       `);
-      db.exec("INSERT OR IGNORE INTO tags (id, name, sortOrder) SELECT id, name, sortOrder FROM groups;");
+      db.exec("INSERT OR IGNORE INTO tags (id, name) SELECT id, name FROM groups;");
       db.exec("DROP TABLE groups;");
       console.log("[Migration] SQLite 'groups' to 'tags' migration successfully complete!");
     }
@@ -396,134 +407,7 @@ const DEFAULT_GROUPS: Tag[] = [
   { id: "g_other", name: "其它频道" }
 ];
 
-const DEFAULT_CHANNELS: Channel[] = [
-  {
-    id: "cctv1",
-    name: "CCTV-1 综合",
-    logo: "https://vfiles.gtimg.cn/vupload/20210729/cf2b0d1627514936398.png",
-    groupIds: ["g_yangshi"],
-    alias: ["CCTV1", "CCTV-1 综合HD", "中央一套"],
-    epgId: "cctv1",
-    sources: [
-      {
-        id: "cctv1-s1",
-        url: "http://ivi.bupt.edu.cn/hls/cctv1hd.m3u8",
-        
-        
-        status: "unknown",
-      },
-      {
-        id: "cctv1-s2",
-        url: "http://39.134.115.163:8080/plsts/1/index.m3u8",
-
-        
-        status: "unknown",
-      }
-    ]
-  },
-  {
-    id: "cctv3",
-    name: "CCTV-3 综艺",
-    logo: "https://vfiles.gtimg.cn/vupload/20210729/cf2b0d1627515090124.png",
-    groupIds: ["g_yangshi"],
-    alias: ["CCTV3", "CCTV-3", "中央三套"],
-    epgId: "cctv3",
-    sources: [
-      {
-        id: "cctv3-s1",
-        url: "http://ivi.bupt.edu.cn/hls/cctv3hd.m3u8",
-        
-        
-        status: "unknown",
-      }
-    ]
-  },
-  {
-    id: "cctv5",
-    name: "CCTV-5 体育",
-    logo: "https://vfiles.gtimg.cn/vupload/20210729/cf2b0d1627515090333.png",
-    groupIds: ["g_yangshi"],
-    alias: ["CCTV5", "CCTV-5", "中央五套", "CCTV5 体育"],
-    epgId: "cctv5",
-    sources: [
-      {
-        id: "cctv5-s1",
-        url: "http://ivi.bupt.edu.cn/hls/cctv5hd.m3u8",
-        
-        
-        status: "unknown",
-      }
-    ]
-  },
-  {
-    id: "cctv6",
-    name: "CCTV-6 电影",
-    logo: "https://vfiles.gtimg.cn/vupload/20210729/cf2b0d1627515090444.png",
-    groupIds: ["g_yangshi"],
-    alias: ["CCTV6", "CCTV-6", "中央六套", "CCTV-6 电影"],
-    epgId: "cctv6",
-    sources: [
-      {
-        id: "cctv6-s1",
-        url: "http://ivi.bupt.edu.cn/hls/cctv6hd.m3u8",
-        
-        
-        status: "unknown",
-      }
-    ]
-  },
-  {
-    id: "cctv13",
-    name: "CCTV-13 新闻",
-    logo: "https://vfiles.gtimg.cn/vupload/20210729/cf2b0d1627515091212.png",
-    groupIds: ["g_yangshi"],
-    alias: ["CCTV13", "CCTV-13", "中央十三套", "CCTV-13 新闻"],
-    epgId: "cctv13",
-    sources: [
-      {
-        id: "cctv13-s1",
-        url: "http://ivi.bupt.edu.cn/hls/cctv13.m3u8",
-        
-        
-        status: "unknown",
-      }
-    ]
-  },
-  {
-    id: "hunantv",
-    name: "湖南卫视",
-    logo: "https://vfiles.gtimg.cn/vupload/20210729/cf2b0d1627515092123.jpg",
-    groupIds: ["g_weishi"],
-    alias: ["湖南卫视", "湖南台", "Hunan TV"],
-    epgId: "hunantv",
-    sources: [
-      {
-        id: "hunantv-s1",
-        url: "http://ivi.bupt.edu.cn/hls/hunantv.m3u8",
-        
-        
-        status: "unknown",
-      }
-    ]
-  },
-  {
-    id: "zhejiangtv",
-    name: "浙江卫视",
-    logo: "https://vfiles.gtimg.cn/vupload/20210729/cf2b0d1627515591321.jpg",
-    groupIds: ["g_weishi"],
-    alias: ["浙江卫视", "浙江台", "Zhejiang TV"],
-    epgId: "zhejiangtv",
-    sources: [
-      {
-        id: "zhejiangtv-s1",
-        url: "http://ivi.bupt.edu.cn/hls/zjhd.m3u8",
-        
-        
-        status: "unknown",
-      }
-    ]
-  }
-];
+const DEFAULT_CHANNELS: Channel[] = [];
 
 const DEFAULT_SYNC_CONFIGS: SyncConfig[] = [
   {
@@ -670,6 +554,12 @@ function loadData() {
           groupIds,
           alias,
           epgId: ch.epgId || "",
+          description: ch.description || "",
+          province: ch.province || "",
+          city: ch.city || "",
+          category: ch.category || "",
+          frequency: ch.frequency || "",
+          gain: ch.gain || 1,
           sources: sourceMap.get(ch.id) || []
         };
       });
@@ -799,7 +689,7 @@ function saveData() {
       db.exec("DELETE FROM channels");
       db.exec("DELETE FROM sources");
 
-      const insertChannel = db.prepare("INSERT INTO channels (id, name, logo, tagIds, alias, epgId) VALUES (?, ?, ?, ?, ?, ?)");
+      const insertChannel = db.prepare("INSERT INTO channels (id, name, logo, tagIds, alias, epgId, description, province, city, category, frequency, gain) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
       const insertSource = db.prepare(`
         INSERT INTO sources (id, channelId, url, status, latency, lastChecked)
         VALUES (?, ?, ?, ?, ?, ?)
@@ -812,7 +702,13 @@ function saveData() {
           ch.logo || "",
           JSON.stringify(ch.tagIds || []),
           JSON.stringify(ch.alias || []),
-          ch.epgId || ""
+          ch.epgId || "",
+          ch.description || "",
+          ch.province || "",
+          ch.city || "",
+          ch.category || "",
+          ch.frequency || "",
+          ch.gain || 1
         );
 
         if (ch.sources && ch.sources.length > 0) {
@@ -1575,7 +1471,7 @@ async function performSync(config: SyncConfig, force = false) {
             channel.sources.push({
               id: "src_" + Math.random().toString(36).substring(2, 10),
               url,
-              status: "unknown",
+              status: "unknown" as "unknown",
             });
             importedSourcesCount++;
           }
@@ -1674,7 +1570,7 @@ async function performSync(config: SyncConfig, force = false) {
             channel.sources.push({
               id: "src_" + Math.random().toString(36).substring(2, 10),
               url,
-              status: "unknown",
+              status: "unknown" as "unknown",
             });
             importedSourcesCount++;
           }
@@ -1845,7 +1741,7 @@ async function startServer() {
   const app = express();
   const PORT = 3000;
 
-  app.use(express.json({ limit: "50mb" }));
+  app.use(express.json({ limit: "200mb" }));
 
   // ==================== CRON JOBS ENDPOINTS ====================
   app.get("/api/cron-jobs", (req, res) => {
@@ -2231,8 +2127,193 @@ async function startServer() {
     res.json(results);
   });
 
+
+
+  const translateTVAtlasName = (enName: string) => {
+    let name = enName;
+    
+    // Translate "Voice of X" to "X之声"
+    name = name.replace(/Voice of ([a-zA-Z一-龥\s]+)/gi, "$1之声");
+
+    const dict: Record<string, string> = {
+      "Anhui": "安徽", "Beijing": "北京", "Chongqing": "重庆", "Fujian": "福建", "Gansu": "甘肃",
+      "Guangdong": "广东", "Guangxi": "广西", "Guizhou": "贵州", "Hainan": "海南", "Hebei": "河北",
+      "Heilongjiang": "黑龙江", "Henan": "河南", "Hubei": "湖北", "Hunan": "湖南", "Inner Mongolia": "内蒙古",
+      "Jiangsu": "江苏", "Jiangxi": "江西", "Jilin": "吉林", "Liaoning": "辽宁", "Ningxia": "宁夏",
+      "Qinghai": "青海", "Shaanxi": "陕西", "Shandong": "山东", "Shanghai": "上海", "Shanxi": "山西",
+      "Sichuan": "四川", "Tianjin": "天津", "Tibet": "西藏", "Xinjiang": "新疆", "Yunnan": "云南",
+      "Zhejiang": "浙江", "Hong Kong": "香港", "Macau": "澳门", "Taiwan": "台湾", "China": "中国",
+      
+      "Guangzhou": "广州", "Shenzhen": "深圳", "Chengdu": "成都", "Hangzhou": "杭州", "Wuhan": "武汉",
+      "Xi'an": "西安", "Suzhou": "苏州", "Nanjing": "南京", "Jinan": "济南", "Qingdao": "青岛",
+      "Dalian": "大连", "Ningbo": "宁波", "Xiamen": "厦门", "Dongguan": "东莞", "Foshan": "佛山",
+      "Harbin": "哈尔滨", "Changchun": "长春", "Shenyang": "沈阳", "Hefei": "合肥", "Fuzhou": "福州",
+      "Zhengzhou": "郑州", "Changsha": "长沙", "Kunming": "昆明", "Wuxi": "无锡", "Quanzhou": "泉州",
+      "Wenzhou": "温州", "Nantong": "南通", "Changzhou": "常州", "Xuzhou": "徐州", "Weifang": "潍坊",
+      "Tangshan": "唐山", "Luoyang": "洛阳", "Yantai": "烟台", "Linyi": "临沂", "Baotou": "包头",
+      "Hohhot": "呼和浩特", "Urumqi": "乌鲁木齐", "Lanzhou": "兰州", "Xining": "西宁", "Yinchuan": "银川",
+      "Nanning": "南宁", "Guiyang": "贵阳", "Haikou": "海口", "Sanya": "三亚", "Guilin": "桂林",
+      
+      "People's Broadcasting Station": "人民广播电台",
+      "Broadcasting Station": "广播电台",
+      "Comprehensive Broadcasting": "综合广播",
+      "Comprehensive Radio": "综合广播",
+      "Traffic Broadcasting": "交通广播",
+      "Traffic Radio": "交通广播",
+      "Music Broadcasting": "音乐广播",
+      "Music Radio": "音乐广播",
+      "News Broadcasting": "新闻广播",
+      "News Radio": "新闻广播",
+      "Economic Broadcasting": "经济广播",
+      "Economic Radio": "经济广播",
+      "Life Broadcasting": "生活广播",
+      "Life Radio": "生活广播",
+      "Arts Broadcasting": "文艺广播",
+      "Arts Radio": "文艺广播",
+      "Literature and Art Radio": "文艺广播",
+      "Literature and Arts Radio": "文艺广播",
+      "Tourism Broadcasting": "旅游广播",
+      "Tourism Radio": "旅游广播",
+      "Story Broadcasting": "故事广播",
+      "Story Radio": "故事广播",
+      "Sports Broadcasting": "体育广播",
+      "Sports Radio": "体育广播",
+      "City Voice": "城市之声",
+      "Voice": "之声",
+      "Radio": "广播",
+      "Broadcasting": "广播",
+      "Audio": "音频",
+      "Children's": "少儿",
+      "Elderly": "老年",
+      "Rural": "农村",
+      "Traffic": "交通",
+      "Music": "音乐",
+      "News": "新闻",
+      "Economic": "经济",
+      "Life": "生活",
+      "Arts": "文艺",
+      "Story": "故事",
+      "Tourism": "旅游",
+      "Sports": "体育",
+      "Comprehensive": "综合",
+      "National": "民族",
+      "City": "城市",
+      "Metropolis": "都市",
+      "Information": "资讯",
+      "Education": "教育",
+      "Finance": "财经",
+      "Financial": "财经",
+      "Classical": "古典",
+      "Satellite TV": "卫视",
+      "TV": "电视",
+      "Channel": "频道"
+    };
+
+    const sortedKeys = Object.keys(dict).sort((a, b) => b.length - a.length);
+    for (const key of sortedKeys) {
+      name = name.replace(new RegExp(key, "gi"), dict[key]);
+    }
+    
+    name = name.replace(/ of /gi, "");
+    name = name.replace(/ /g, "");
+    
+    return name;
+  };
+
+  app.post("/api/channels/import-tvatlas", express.json({limit: '50mb'}), (req, res) => {
+    try {
+      const data = req.body;
+      if (!Array.isArray(data)) {
+        return res.status(400).json({ error: "Invalid data format. Expected a JSON array." });
+      }
+
+      let addedChannels = 0;
+      let addedSources = 0;
+
+      const tvAtlasGroup = tags.find(t => t.name === "TVAtlas") || { id: "g_tvatlas", name: "TVAtlas", sortOrder: tags.length };
+      if (!tags.find(t => t.id === tvAtlasGroup.id)) {
+        tags.push(tvAtlasGroup as any);
+        const insertTag = db.prepare("INSERT OR REPLACE INTO tags (id, name, sortOrder) VALUES (?, ?, ?)");
+        insertTag.run(tvAtlasGroup.id, tvAtlasGroup.name, (tvAtlasGroup as any).sortOrder || tags.length);
+      }
+
+      const insertChannel = db.prepare("INSERT INTO channels (id, name, tagIds, sortOrder, alias, epgId, description, province, city, category, frequency, gain) VALUES (?, ?, ?, ?, ?, '', '', '', '', '', '', 1)");
+      const insertSource = db.prepare("INSERT INTO sources (id, channelId, url) VALUES (?, ?, ?)");
+
+      db.transaction(() => {
+        data.forEach((item: any) => {
+          if (!item.name || !item.streams || !Array.isArray(item.streams)) return;
+
+          let chId: string | null = null;
+          
+          // Match by URL first
+          for (const streamUrl of item.streams) {
+             const existingByUrl = channels.find(c => c.sources.some(s => s.url === streamUrl));
+             if (existingByUrl) {
+                chId = existingByUrl.id;
+                break;
+             }
+          }
+
+          const translatedName = translateTVAtlasName(item.name);
+
+          // Match by name or translated name
+          if (!chId) {
+             const existingByName = channels.find(c => 
+               c.name.toLowerCase() === item.name.toLowerCase() || 
+               c.name === translatedName || 
+               (c.alias && (c.alias.includes(item.name) || c.alias.includes(translatedName)))
+             );
+             if (existingByName) {
+                chId = existingByName.id;
+             }
+          }
+
+          if (!chId) {
+            chId = "ch_" + Math.random().toString(36).substring(2, 10);
+            const aliasArr = [item.name];
+            const newCh = { id: chId, name: translatedName, groupIds: [tvAtlasGroup.id], logo: "", sources: [], alias: aliasArr, epgId: "" };
+            channels.push(newCh as any);
+            insertChannel.run(chId, translatedName, JSON.stringify([tvAtlasGroup.id]), channels.length, JSON.stringify(aliasArr));
+            addedChannels++;
+          } else {
+             // If found, optionally add tag to existing channel
+             const existingCh = channels.find(c => c.id === chId);
+             if (existingCh) {
+                 let tIds = existingCh.tagIds || existingCh.groupIds || [];
+                 if (!tIds.includes(tvAtlasGroup.id)) {
+                     tIds.push(tvAtlasGroup.id);
+                     existingCh.tagIds = tIds;
+                     existingCh.groupIds = tIds;
+                     db.prepare("UPDATE channels SET tagIds = ? WHERE id = ?").run(JSON.stringify(tIds), chId);
+                 }
+             }
+          }
+
+          // Add streams
+          item.streams.forEach((streamUrl: string) => {
+            const ch = channels.find(c => c.id === chId);
+            if (ch && !ch.sources.some(s => s.url === streamUrl)) {
+              const srcId = "src_" + Math.random().toString(36).substring(2, 10);
+              const newSrc = { id: srcId, channelId: chId, url: streamUrl, status: "unknown" as "unknown" as any, quality: 0, speed: 0, isAudioOnly: 1, sortOrder: ch.sources.length };
+              ch.sources.push(newSrc);
+              insertSource.run(srcId, chId, streamUrl);
+              addedSources++;
+            }
+          });
+        });
+      })();
+
+      res.json({ success: true, message: `Imported successfully. Added ${addedChannels} channels and ${addedSources} streams.` });
+    } catch (err: any) {
+      console.error("[TVAtlas Import Error]", err);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+
   app.post("/api/channels", (req, res) => {
-    const { name, groupIds, category, logo, alias, epgId } = req.body;
+    const { name, groupIds, category, logo, alias, epgId, description, province, city, frequency, gain } = req.body;
     if (!name) {
       return res.status(400).json({ error: "频道名称为必填项" });
     }
@@ -2266,6 +2347,12 @@ async function startServer() {
       logo: logo || "https://images.unsplash.com/photo-1598257006458-087169a1f08d?auto=format&fit=crop&w=48&h=48&q=80",
       alias: alias ? (Array.isArray(alias) ? alias : alias.split(",").map((s: string) => s.trim())) : [name],
       epgId: epgId || generateDefaultEpgId(name),
+      description: description || "",
+      province: province || "",
+      city: city || "",
+      category: category || "",
+      frequency: frequency || "",
+      gain: gain !== undefined ? Number(gain) : 1,
       sources: []
     };
 
@@ -2276,7 +2363,7 @@ async function startServer() {
 
   app.put("/api/channels/:id", (req, res) => {
     const { id } = req.params;
-    const { name, groupIds, category, logo, alias, epgId } = req.body;
+    const { name, groupIds, category, logo, alias, epgId, description, province, city, frequency, gain } = req.body;
 
     const channel = channels.find((c) => c.id === id);
     if (!channel) {
@@ -2303,6 +2390,12 @@ async function startServer() {
       channel.alias = Array.isArray(alias) ? alias : alias.split(",").map((s: string) => s.trim());
     }
     if (epgId !== undefined) channel.epgId = epgId;
+    if (description !== undefined) channel.description = description;
+    if (province !== undefined) channel.province = province;
+    if (city !== undefined) channel.city = city;
+    if (category !== undefined) channel.category = category;
+    if (frequency !== undefined) channel.frequency = frequency;
+    if (gain !== undefined) channel.gain = gain;
 
     saveData();
     res.json(channel);
@@ -2602,7 +2695,7 @@ async function startServer() {
       url,
       
       
-      status: "unknown",
+      status: "unknown" as "unknown",
     };
 
     channel.sources.push(newSource);
@@ -2742,6 +2835,304 @@ async function startServer() {
   });
 
   // Bulk Upload File Handler Endpoint
+  
+  // Bulk Data Import (CSV/JSON)
+  app.post("/api/import/bulk-data", (req, res) => {
+    try {
+      const { content, format } = req.body;
+      if (!content) return res.status(400).json({ error: "No content provided." });
+      
+      let parsedData = [];
+      if (format === "json") {
+        parsedData = JSON.parse(content);
+      } else if (format === "csv") {
+        parsedData = parseCSV(content, { columns: true, skip_empty_lines: true, trim: true, relax_quotes: true, relax_column_count: true });
+      } else {
+        return res.status(400).json({ error: "Unsupported format." });
+      }
+
+      if (!Array.isArray(parsedData)) {
+        return res.status(400).json({ error: "Parsed data is not an array." });
+      }
+
+      let importedChannelsCount = 0;
+      let importedSourcesCount = 0;
+
+      const importTx = db.transaction((data) => {
+        for (const item of data) {
+          const name = item.name || item.名称 || item.channel || item.Title || item.电台名称 || "未知频道";
+          const url = item.url || item.url || item.链接 || item.URL || item.Url || item.直播流ID;
+          const categoryRaw = item.category || item.分类 || item.group || item.Group || item.所属分类 || "未分类";
+          const logo = item.logo || item.图标 || item.Logo || item.封面图 || "";
+          const epgId = item.epgId || item.epgId || generateDefaultEpgId(name);
+          const description = item.description || item.描述 || item.电台描述 || "";
+          const province = item.province || item.省份 || item.所属省份 || "";
+          const city = item.city || item.城市 || item.所属城市 || "";
+          const frequency = item.frequency || item.频率 || "";
+          const gain = item.gain || item.增益 || 1;
+          
+          if (!url && format === "csv" && !item.电台名称 && !item.name && !item.名称 && !item.channel && !item.Title) {
+             // Try to handle raw tvbox format (name,url) if it has no header
+             continue;
+          }
+
+          // Process Categories
+          const catNames = categoryRaw.split(/[,;，；]/).map(s => s.trim()).filter(Boolean);
+          if (catNames.length === 0) catNames.push("手动导入");
+
+          const matchedGroupIds = [];
+          for (const catName of catNames) {
+            let existingGroup = tags.find((g) => g.name.toLowerCase() === catName.toLowerCase());
+            if (!existingGroup) {
+              existingGroup = { id: "g_" + Math.random().toString(36).substring(2, 10), name: catName };
+              tags.push(existingGroup);
+              // Optimistically insert to DB
+              db.prepare("INSERT OR IGNORE INTO tags (id, name, type) VALUES (?, ?, ?)").run(existingGroup.id, existingGroup.name, "category");
+            }
+            matchedGroupIds.push(existingGroup.id);
+          }
+
+          const stdInfo = findAliasTemplate(name);
+          const lookupName = stdInfo ? stdInfo.templateName : name;
+          let channel = channels.find(
+            (c) =>
+              normalizeChannelName(c.name) === normalizeChannelName(lookupName) ||
+              c.alias.some((a) => normalizeChannelName(a) === normalizeChannelName(lookupName)) ||
+              (stdInfo && stdInfo.aliases.some(a => normalizeChannelName(c.name) === normalizeChannelName(a) || c.alias.some(ca => normalizeChannelName(ca) === normalizeChannelName(a))))
+          );
+
+          if (!channel) {
+            const cleanName = stdInfo ? stdInfo.templateName : name;
+            const cleanAliases = stdInfo ? Array.from(new Set([cleanName, name, ...stdInfo.aliases])) : [name];
+            channel = {
+              id: "ch_" + Math.random().toString(36).substring(2, 10),
+              name: cleanName,
+              logo: logo || "https://images.unsplash.com/photo-1598257006458-087169a1f08d?auto=format&fit=crop&w=48&h=48&q=80",
+              tagIds: matchedGroupIds,
+              groupIds: matchedGroupIds,
+              alias: cleanAliases,
+              epgId: epgId,
+              sources: [],
+            };
+            channels.push(channel);
+            
+            db.prepare(`INSERT INTO channels (id, name, logo, tagIds, alias, epgId, description, province, city, frequency, gain) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+              .run(channel.id, channel.name, channel.logo, JSON.stringify(channel.tagIds), JSON.stringify(channel.alias), channel.epgId, description, province, city, frequency, gain);
+            
+            importedChannelsCount++;
+          } else {
+            if (stdInfo) {
+              stdInfo.aliases.forEach(a => {
+                if (!channel.alias.includes(a)) {
+                  channel.alias.push(a);
+                }
+              });
+              db.prepare("UPDATE channels SET alias = ? WHERE id = ?").run(JSON.stringify(channel.alias), channel.id);
+            }
+          }
+
+          // Add source
+          if (url && !channel.sources.some((s) => s.url === url)) {
+            const newSource = {
+              id: "src_" + Math.random().toString(36).substring(2, 10),
+              url,
+              status: "unknown" as "unknown",
+            };
+            channel.sources.push(newSource);
+            db.prepare(`INSERT INTO sources (id, channelId, url, status) VALUES (?, ?, ?, ?)`).run(newSource.id, channel.id, newSource.url, newSource.status);
+            importedSourcesCount++;
+          }
+        }
+      });
+
+      importTx(parsedData);
+      
+      res.json({ success: true, channels: importedChannelsCount, sources: importedSourcesCount });
+    } catch (err) {
+      console.error("Bulk import error:", err);
+      res.status(500).json({ error: err.message || "Failed to process import" });
+    }
+  });
+
+  
+  // Import from CSV or JSON (Full Data)
+  app.post("/api/import/csv-json", (req, res) => {
+    const { content, format } = req.body;
+    if (!content) {
+      return res.status(400).json({ error: "文件内容为空" });
+    }
+
+    try {
+      let importedChannelsCount = 0;
+      let importedSourcesCount = 0;
+
+      const getChannelByName = (name: string) => {
+        return channels.find(
+          (c) =>
+            normalizeChannelName(c.name) === normalizeChannelName(name) ||
+            c.alias.some((a: string) => normalizeChannelName(a) === normalizeChannelName(name))
+        );
+      };
+
+      db.transaction(() => {
+        if (format === "json") {
+          const data = JSON.parse(content);
+          if (!Array.isArray(data)) throw new Error("JSON 格式错误，必须为数组");
+          
+          data.forEach((item: any) => {
+             const name = item.name || item.title;
+             if (!name) return;
+             
+             let ch = getChannelByName(name);
+             if (!ch) {
+                ch = {
+                   id: "ch_" + Math.random().toString(36).substring(2, 10),
+                   name: name,
+                   logo: item.logo || item.icon || item.cover || item.coverImg || "",
+                   tagIds: [],
+                   groupIds: [],
+                   alias: [name],
+                   epgId: item.epgId || "",
+                   description: item.description || item.desc || "",
+                   province: item.province || "",
+                   city: item.city || "",
+                   category: item.category || item.genre || "",
+                   frequency: item.frequency || "",
+                   gain: item.gain || 1,
+                   sources: []
+                };
+                
+                if (item.genres && Array.isArray(item.genres)) {
+                    for(const g of item.genres) {
+                        let tg = tags.find(t => t.name === g);
+                        if (!tg) {
+                            tg = { id: "g_" + Math.random().toString(36).substring(2,10), name: g };
+                            tags.push(tg);
+                        }
+                        ch.tagIds.push(tg.id);
+                        ch.groupIds.push(tg.id);
+                    }
+                }
+
+                if (ch.category) {
+                   let tg = tags.find(t => t.name === ch.category);
+                   if (!tg) {
+                       tg = { id: "g_" + Math.random().toString(36).substring(2,10), name: ch.category };
+                       tags.push(tg);
+                   }
+                   if (!ch.tagIds.includes(tg.id)) ch.tagIds.push(tg.id);
+                   if (!ch.groupIds.includes(tg.id)) ch.groupIds.push(tg.id);
+                }
+
+                channels.push(ch);
+                importedChannelsCount++;
+             } else {
+                // Update optional fields if missing
+                if (!ch.logo && (item.logo || item.icon || item.cover)) ch.logo = item.logo || item.icon || item.cover;
+                if (!ch.description && item.description) ch.description = item.description;
+                if (!ch.province && item.province) ch.province = item.province;
+                if (!ch.city && item.city) ch.city = item.city;
+             }
+
+             // streams
+             const streams = item.streams || item.urls || [];
+             if (Array.isArray(streams)) {
+                 for(const url of streams) {
+                     if (url && !ch.sources.some((s:any) => s.url === url)) {
+                         ch.sources.push({
+                             id: "src_" + Math.random().toString(36).substring(2, 10),
+                             url: url,
+                             status: "unknown" as "unknown"
+                         });
+                         importedSourcesCount++;
+                     }
+                 }
+             } else if (typeof streams === 'string' && streams) {
+                 if (!ch.sources.some((s:any) => s.url === streams)) {
+                     ch.sources.push({
+                         id: "src_" + Math.random().toString(36).substring(2, 10),
+                         url: streams,
+                         status: "unknown" as "unknown"
+                     });
+                     importedSourcesCount++;
+                 }
+             }
+          });
+        } else if (format === "csv") {
+          const records = parseCSV(content, {
+            columns: (header: string[]) => header.map(col => col.trim()),
+            skip_empty_lines: true,
+            relax_quotes: true,
+            relax_column_count: true
+          });
+          
+          records.forEach((row: any) => {
+             const name = row['电台名称'] || row['name'] || row['title'];
+             if (!name) return;
+
+             let ch = getChannelByName(name);
+             if (!ch) {
+                ch = {
+                   id: "ch_" + Math.random().toString(36).substring(2, 10),
+                   name: name,
+                   logo: row['封面图'] || row['logo'] || row['icon'] || "",
+                   tagIds: [],
+                   groupIds: [],
+                   alias: [name],
+                   epgId: row['epgId'] || row['EPG'] || "",
+                   description: row['电台描述'] || row['description'] || row['desc'] || "",
+                   province: row['所属省份'] || row['province'] || "",
+                   city: row['所属城市'] || row['city'] || "",
+                   category: row['所属分类'] || row['category'] || row['genre'] || "",
+                   frequency: row['频率'] || row['frequency'] || "",
+                   gain: parseFloat(row['gain']) || 1,
+                   sources: []
+                };
+
+                if (ch.category) {
+                   let tg = tags.find(t => t.name === ch.category);
+                   if (!tg) {
+                       tg = { id: "g_" + Math.random().toString(36).substring(2,10), name: ch.category };
+                       tags.push(tg);
+                   }
+                   ch.tagIds.push(tg.id);
+                   ch.groupIds.push(tg.id);
+                }
+
+                channels.push(ch);
+                importedChannelsCount++;
+             } else {
+                if (!ch.logo && (row['封面图'] || row['logo'])) ch.logo = row['封面图'] || row['logo'];
+                if (!ch.description && row['电台描述']) ch.description = row['电台描述'];
+                if (!ch.province && row['所属省份']) ch.province = row['所属省份'];
+                if (!ch.city && row['所属城市']) ch.city = row['所属城市'];
+             }
+
+             const url = row['直播流ID'] || row['url'] || row['stream'];
+             if (url) {
+                 if (!ch.sources.some((s:any) => s.url === url)) {
+                     ch.sources.push({
+                         id: "src_" + Math.random().toString(36).substring(2, 10),
+                         url: url,
+                         status: "unknown" as "unknown"
+                     });
+                     importedSourcesCount++;
+                 }
+             }
+          });
+        }
+        
+        saveData();
+
+      })();
+      
+      res.json({ success: true, message: `成功导入 ${importedChannelsCount} 个新频道, ${importedSourcesCount} 个新播放源` });
+    } catch (e: any) {
+       console.error("Import error", e);
+       res.status(500).json({ error: e.message || "导入失败" });
+    }
+  });
+
   app.post("/api/import/file", (req, res) => {
     const { content, type } = req.body;
     if (!content) {
@@ -2849,7 +3240,7 @@ async function startServer() {
                 id: "src_" + Math.random().toString(36).substring(2, 10),
                 url,
                                 
-                status: "unknown",
+                status: "unknown" as "unknown",
               });
               importedSourcesCount++;
             }
@@ -2937,7 +3328,7 @@ async function startServer() {
               id: "src_" + Math.random().toString(36).substring(2, 10),
                 url,
                                 
-                status: "unknown",
+                status: "unknown" as "unknown",
               });
               importedSourcesCount++;
             }
@@ -3676,6 +4067,37 @@ ${JSON.stringify(scoredList.map(c => ({ epgId: c.epgId, names: c.displayNames, s
 });
 // Dynamic EPG XML TV interface
   // Returns generic valid XMLTV layout for connected players matching epgIds
+
+  app.get("/api/export/radio.json", (req, res) => {
+    const radioData = channels.map(ch => {
+      let streamUrl = "";
+      if (ch.sources && ch.sources.length > 0) {
+        const activeSource = ch.sources.find(s => s.status === 'active') || ch.sources[0];
+        streamUrl = activeSource.url;
+      }
+      
+      const channelTags = (ch.tagIds || ch.groupIds || []).map(id => {
+        const t = tags.find(x => x.id === id);
+        return t ? t.name : id;
+      }).filter(name => name && name !== "g_other" && name !== "其它" && name !== "其它频道");
+      
+      return {
+        id: ch.id,
+        name: ch.name,
+        description: ch.description || "",
+        streamUrl: streamUrl,
+        coverUrl: ch.logo || "",
+        tags: channelTags,
+        category: ch.category || "",
+        gain: ch.gain !== undefined ? ch.gain : 1,
+        frequency: ch.frequency || ""
+      };
+    });
+    
+    res.setHeader("Content-Type", "application/json; charset=utf-8");
+    res.json(radioData);
+  });
+
   app.get("/api/export/epg.xml", (req, res) => {
     const xmlHeader = `<?xml version="1.0" encoding="utf-8"?>
 <!DOCTYPE tv SYSTEM "xmltv.dtd">

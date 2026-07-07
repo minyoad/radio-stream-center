@@ -1,0 +1,65 @@
+[
+	{
+		"id": "radio-TEx9uFzPJpDxQK",
+		"name": "7th Division People's Radio",
+		"countryCode": "CN",
+		"genres": [],
+		"streams": [
+			"https://lhttp.qingting.fm/live/20500095/64k.mp3"
+		]
+	},
+	{
+		"id": "radio-zM932a5NnhASVa",
+		"name": "13th Division People's Broadcasting Station",
+		"countryCode": "CN",
+		"genres": [],
+		"streams": [
+			"https://lhttp.qingting.fm/live/5022506/64k.mp3"
+		]
+	},
+	{
+		"id": "radio-aXHdk65Y1Kd8Vl",
+		"name": "50 Classic Classical Songs",
+		"countryCode": "CN",
+		"genres": [],
+		"streams": [
+			"https://lhttp-hw.qtfm.cn/live/5022308/64k.mp3"
+		]
+	},
+	{
+		"id": "radio-Huu6ehNhBPimAx",
+		"name": "90.7 Mix FM",
+		"countryCode": "CN",
+		"genres": [],
+		"streams": [
+			"https://lhttp.qingting.fm/live/15318146/64k.mp3"
+		]
+	},
+	{
+		"id": "radio-yDapGCZLHKe4Fp",
+		"name": "179 Baiyang Classic",
+		"countryCode": "CN",
+		"genres": [],
+		"streams": [
+			"https://stream.zeno.fm/v5169mx3cm8uv"
+		]
+	},
+	{
+		"id": "radio-jpBhgbg5XhnlsG",
+		"name": "179music",
+		"countryCode": "CN",
+		"genres": [],
+		"streams": [
+			"https://stream.zeno.fm/mss1yzbbbm8uv"
+		]
+	},
+	{
+		"id": "radio-y54tI5aq8JqyFR",
+		"name": "500 Chinese Golden Songs",
+		"countryCode": "CN",
+		"genres": [],
+		"streams": [
+			"https://lhttp.qtfm.cn/live/5022308/64k.mp3"
+		]
+	}
+]

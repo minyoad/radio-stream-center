@@ -23,6 +23,12 @@ export interface Channel {
   groupIds?: string[];
   alias: string[];
   epgId: string;
+  description?: string;
+  province?: string;
+  city?: string;
+  category?: string;
+  frequency?: string;
+  gain?: number;
   sources: LiveSource[];
 }
 
@@ -74,6 +80,12 @@ export interface EpgGuide {
   channelName: string;
   date: string;
   epgId: string;
+  description?: string;
+  province?: string;
+  city?: string;
+  category?: string;
+  frequency?: string;
+  gain?: number;
   isSimulated?: boolean;
   programs: EpgProgram[];
 }
