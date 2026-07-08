@@ -1897,6 +1897,7 @@ async function startServer() {
     // 1. Skip paths that must always be public for TV playback players, external probes or login verification
     const isPublicPath = 
       req.path.startsWith("/api/export/") || 
+      req.path.startsWith("/api/public/") || 
       req.path === "/api/epg/guide" || 
       req.path === "/api/sources/detect-ip" ||
       req.path === "/api/auth/status" ||
@@ -2756,8 +2757,11 @@ async function startServer() {
           if (a) allAliases.add(a.trim());
         });
       }
-      if (c.groupIds && Array.isArray(c.groupIds)) {
+      if (c.tagIds && Array.isArray(c.tagIds)) {
         c.tagIds.forEach(g => allGroupIds.add(g));
+      }
+      if (c.groupIds && Array.isArray(c.groupIds)) {
+        c.groupIds.forEach(g => allGroupIds.add(g));
       }
       if (c.logo && c.logo.trim()) {
         logoCandidates.push(c.logo.trim());
@@ -2839,12 +2843,14 @@ async function startServer() {
     primaryChannel.sources = mergedSources;
     
     // Fill in missing optional metadata fields
-    if (!primaryChannel.description) primaryChannel.description = descriptionCandidates[0] || "";
-    if (!primaryChannel.province) primaryChannel.province = provinceCandidates[0] || "";
-    if (!primaryChannel.city) primaryChannel.city = cityCandidates[0] || "";
-    if (!primaryChannel.category) primaryChannel.category = categoryCandidates[0] || "";
-    if (!primaryChannel.frequency) primaryChannel.frequency = frequencyCandidates[0] || "";
-    if (bestGain !== undefined) primaryChannel.gain = bestGain;
+    primaryChannel.description = primaryChannel.description || descriptionCandidates.find(x => x) || "";
+    primaryChannel.province = primaryChannel.province || provinceCandidates.find(x => x) || "";
+    primaryChannel.city = primaryChannel.city || cityCandidates.find(x => x) || "";
+    primaryChannel.category = primaryChannel.category || categoryCandidates.find(x => x) || "";
+    primaryChannel.frequency = primaryChannel.frequency || frequencyCandidates.find(x => x) || "";
+    if ((primaryChannel.gain === undefined || primaryChannel.gain === null || primaryChannel.gain === 1) && bestGain !== undefined) {
+      primaryChannel.gain = bestGain;
+    }
 
     const otherIdsToMerge = channelIds.filter(id => id !== primaryChannel.id);
     channels = channels.filter(c => !otherIdsToMerge.includes(c.id));
