@@ -100,6 +100,7 @@ let syncConfigs: SyncConfig[] = [];
 let epgSources: EpgSource[] = [];
 let adminPassword = process.env.ADMIN_PASSWORD || "";
 let githubProxy = "";
+let geminiApiKey = "";
 let autoCreateChannel = true;
 
 const SQLITE_DB_PATH = path.join(DATA_DIR, "radio_sqlite.db");
@@ -513,6 +514,9 @@ function loadData() {
       if (parsed.githubProxy !== undefined) {
         githubProxy = parsed.githubProxy;
       }
+      if (parsed.geminiApiKey !== undefined) {
+        geminiApiKey = parsed.geminiApiKey;
+      }
       if (parsed.autoCreateChannel !== undefined) {
         autoCreateChannel = !!parsed.autoCreateChannel;
       }
@@ -537,6 +541,7 @@ function loadData() {
       for (const row of loadedSettings as any[]) {
         if (row.key === "adminPassword") adminPassword = row.value;
         if (row.key === "githubProxy") githubProxy = row.value;
+        if (row.key === "geminiApiKey") geminiApiKey = row.value;
         if (row.key === "autoCreateChannel") autoCreateChannel = (row.value === "true" || row.value === "1");
       }
 
@@ -737,6 +742,7 @@ function saveData() {
       const insertSetting = db.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)");
       insertSetting.run("adminPassword", adminPassword);
       insertSetting.run("githubProxy", githubProxy);
+      insertSetting.run("geminiApiKey", geminiApiKey);
       insertSetting.run("autoCreateChannel", autoCreateChannel ? "true" : "false");
 
       // 2. Sync tags
@@ -1159,12 +1165,15 @@ function escapeXml(unsafe: string): string {
 }
 
 let geminiClient: GoogleGenAI | null = null;
+let currentGeminiApiKey: string | null = null;
+
 function getGeminiClient(): GoogleGenAI {
-  const apiKey = process.env.GEMINI_API_KEY;
+  const apiKey = geminiApiKey || process.env.GEMINI_API_KEY;
   if (!apiKey) {
-    throw new Error("请先在 系统设置 > 密钥 (Settings > Secrets) 中配置您的 GEMINI_API_KEY！");
+    throw new Error("服务器未配置 GEMINI_API_KEY，请在系统配置中设置");
   }
-  if (!geminiClient) {
+  if (!geminiClient || currentGeminiApiKey !== apiKey) {
+    currentGeminiApiKey = apiKey;
     geminiClient = new GoogleGenAI({
       apiKey,
       httpOptions: {
@@ -1929,19 +1938,27 @@ async function startServer() {
   // API Endpoints
   // Settings Endpoints
   app.get("/api/settings", (req, res) => {
-    res.json({ githubProxy, autoCreateChannel });
+    res.json({ githubProxy, autoCreateChannel, geminiApiKey: geminiApiKey ? geminiApiKey.substring(0, 5) + "..." + geminiApiKey.slice(-4) : "" });
   });
 
   app.post("/api/settings", (req, res) => {
-    const { githubProxy: proxy, autoCreateChannel: autoCreate } = req.body;
+    const { githubProxy: proxy, autoCreateChannel: autoCreate, geminiApiKey: geminiKey } = req.body;
     if (proxy !== undefined) {
       githubProxy = (proxy || "").trim();
     }
     if (autoCreate !== undefined) {
       autoCreateChannel = !!autoCreate;
     }
+    if (geminiKey !== undefined) {
+      // If it includes '...', it's the masked version, ignore it
+      if (geminiKey && !geminiKey.includes("...")) {
+        geminiApiKey = geminiKey.trim();
+      } else if (geminiKey === "") {
+        geminiApiKey = "";
+      }
+    }
     saveData();
-    res.json({ success: true, githubProxy, autoCreateChannel });
+    res.json({ success: true, githubProxy, autoCreateChannel, geminiApiKey: geminiApiKey ? geminiApiKey.substring(0, 5) + "..." + geminiApiKey.slice(-4) : "" });
   });
 
   // EPG Sources REST Endpoints
@@ -2540,11 +2557,7 @@ async function startServer() {
         return res.status(400).json({ error: "频道名称不能为空" });
       }
 
-      if (!process.env.GEMINI_API_KEY) {
-        return res.status(400).json({ error: "服务器未配置 GEMINI_API_KEY，无法使用 AI 功能" });
-      }
-
-      const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+      const ai = getGeminiClient();
       
       const prompt = `你是一个专业的电视广播频道元数据补全助手。
 我提供了一个频道名称（可能还有当前的元数据），请你根据你的知识库，补全缺失的电台相关信息。
@@ -3189,7 +3202,7 @@ ${currentData ? `当前已知信息:\n${JSON.stringify(currentData, null, 2)}` :
           }
 
           // Process Categories
-          const catNames = categoryRaw.split(/[,;，；]/).map(s => s.trim()).filter(Boolean);
+          const catNames = categoryRaw.split(/[,;，；、/|\\ ]+/).map((s: string) => s.trim()).filter(Boolean);
           if (catNames.length === 0) catNames.push("手动导入");
 
           const matchedGroupIds = [];

@@ -57,6 +57,8 @@ export default function App() {
   };
   const [githubProxy, setGithubProxy] = useState("");
   const [githubProxyInput, setGithubProxyInput] = useState("");
+  const [geminiApiKey, setGeminiApiKey] = useState("");
+  const [geminiApiKeyInput, setGeminiApiKeyInput] = useState("");
   const [autoCreateChannel, setAutoCreateChannel] = useState(true);
   const [isBatchSyncing, setIsBatchSyncing] = useState(false);
   const [isSavingProxy, setIsSavingProxy] = useState(false);
@@ -532,6 +534,8 @@ export default function App() {
         const settingsData = await resSettings.json();
         setGithubProxy(settingsData.githubProxy || "");
         setGithubProxyInput(settingsData.githubProxy || "");
+        setGeminiApiKey(settingsData.geminiApiKey || "");
+        setGeminiApiKeyInput(settingsData.geminiApiKey || "");
         setAutoCreateChannel(settingsData.autoCreateChannel !== false);
       }
       await fetchEpgSourcesInternal();
@@ -737,6 +741,28 @@ export default function App() {
       }
     } catch (e) {
       setAuthError("无法连接到主服务器，请检查网络后再试");
+    }
+  };
+
+  const saveGeminiApiKey = async () => {
+    try {
+      const res = await fetch("/api/settings", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({ geminiApiKey: geminiApiKeyInput })
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setGeminiApiKey(data.geminiApiKey || "");
+        setGeminiApiKeyInput(data.geminiApiKey || "");
+        showFeedback("success", "Gemini API Key 已成功保存！");
+      } else {
+        showFeedback("error", "保存 Gemini API Key 失败");
+      }
+    } catch (e) {
+      showFeedback("error", "网络请求异常，保存 API Key 失败");
     }
   };
 
@@ -1921,7 +1947,16 @@ export default function App() {
         if (enriched.description && !newForm.description) newForm.description = enriched.description;
         if (enriched.province && !newForm.province) newForm.province = enriched.province;
         if (enriched.city && !newForm.city) newForm.city = enriched.city;
-        if (enriched.category && !newForm.category) newForm.category = enriched.category;
+        if (enriched.category) {
+          const currentNewGroups = newForm.newGroupsString.split(/[,，、/|\\ \t]+/).map(s => s.trim()).filter(Boolean);
+          const aiCats = enriched.category.split(/[,，、/|\\ \t]+/).map((s: string) => s.trim()).filter(Boolean);
+          aiCats.forEach((cat: string) => {
+            if (!currentNewGroups.includes(cat) && !tags.some(t => t.name === cat && newForm.groupIds.includes(t.id))) {
+              currentNewGroups.push(cat);
+            }
+          });
+          newForm.newGroupsString = currentNewGroups.join(", ");
+        }
         if (enriched.frequency && !newForm.frequency) newForm.frequency = enriched.frequency;
         
         if (enriched.alias && Array.isArray(enriched.alias) && enriched.alias.length > 0) {
@@ -2720,10 +2755,10 @@ export default function App() {
                                 <p className="text-xs font-bold text-slate-800 flex items-center gap-1.5 truncate">
                                   {ch.name}
                                 </p>
-                                {(ch.description || ch.province || ch.city || ch.category || ch.frequency) && (
+                                {(ch.description || ch.province || ch.city || ch.frequency) && (
                                   <p className="text-[10px] text-slate-500 font-normal truncate mt-0.5">
-                                    {[ch.frequency, ch.province, ch.city, ch.category].filter(Boolean).join(" · ")}
-                                    {ch.description && (ch.frequency || ch.province || ch.city || ch.category ? " | " : "") + ch.description}
+                                    {[ch.frequency, ch.province, ch.city].filter(Boolean).join(" · ")}
+                                    {ch.description && (ch.frequency || ch.province || ch.city ? " | " : "") + ch.description}
                                   </p>
                                 )}
                                 <p className="text-[10px] text-slate-400 mt-0.5 truncate">
@@ -3785,6 +3820,71 @@ export default function App() {
                 </div>
                 <div className="text-[11px] text-slate-400">
                   💡 注意：留空并保存即可<b>直接连接</b>拉取 GitHub 原源。如果遇到 GitHub 连接超时、无法拉取或白屏问题，推荐配置 <code>https://mirror.ghproxy.com</code> 或 <code>https://ghproxy.net</code>。
+                </div>
+              </div>
+
+              {/* Gemini API Key Settings Card */}
+              <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm space-y-4" id="gemini_api_settings_card">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    <div className="p-2 bg-indigo-50 text-indigo-600 rounded-xl">
+                      <Settings className="w-5 h-5 animate-spin-hover" />
+                    </div>
+                    <div>
+                      <h3 className="font-bold text-slate-800 text-sm">Gemini API Key 配置</h3>
+                      <p className="text-xs text-slate-400 mt-0.5">配置您的 Google Gemini API Key 以解锁 AI 智能补全和推荐功能</p>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="flex flex-col sm:flex-row gap-3 items-center">
+                  <div className="relative flex-1 w-full">
+                    <input
+                      type="password"
+                      value={geminiApiKeyInput}
+                      onChange={(e) => setGeminiApiKeyInput(e.target.value)}
+                      placeholder="AIzaSy..."
+                      className="w-full pl-4 pr-24 py-2.5 border border-slate-200 rounded-xl text-xs focus:outline-none focus:ring-1 focus:ring-indigo-500 focus:border-indigo-500 bg-slate-50 text-slate-700 placeholder-slate-400 font-mono"
+                    />
+                    {geminiApiKey && (
+                      <div className="absolute right-3 top-2.5 flex items-center text-emerald-600 gap-1" title="已配置">
+                        <Check className="w-4 h-4 stroke-[3]" />
+                        <span className="text-[10px] font-bold">已配置</span>
+                      </div>
+                    )}
+                  </div>
+                  <button
+                    onClick={saveGeminiApiKey}
+                    className="w-full sm:w-auto px-6 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs rounded-xl shadow transition duration-150 cursor-pointer text-center flex-shrink-0"
+                  >
+                    保存 API Key
+                  </button>
+                  {geminiApiKey && (
+                    <button
+                      onClick={async () => {
+                        try {
+                          const res = await fetch("/api/settings", {
+                            method: "POST",
+                            headers: { "Content-Type": "application/json" },
+                            body: JSON.stringify({ geminiApiKey: "" })
+                          });
+                          if (res.ok) {
+                            setGeminiApiKey("");
+                            setGeminiApiKeyInput("");
+                            showFeedback("success", "API Key 已成功清除");
+                          }
+                        } catch (err) {
+                          showFeedback("error", "清除失败");
+                        }
+                      }}
+                      className="w-full sm:w-auto px-4 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-600 font-bold text-xs rounded-xl transition cursor-pointer text-center flex-shrink-0"
+                    >
+                      清空
+                    </button>
+                  )}
+                </div>
+                <div className="text-[11px] text-slate-400">
+                  💡 注意：此 Key 将用于 AI 一键补全频道信息、推荐 EPG 对应项。如果您部署在公开环境，请妥善保管。留空则无法使用 AI 相关功能。系统环境变量 <code>GEMINI_API_KEY</code> 也是生效的。
                 </div>
               </div>
 
