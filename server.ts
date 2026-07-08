@@ -1363,6 +1363,21 @@ async function fetchBufferWithFallback(urlStr: string, userAgent: string): Promi
     try {
       return await downloadDirectly(urlStr);
     } catch (fallbackErr: any) {
+      if ((urlStr.includes("github.com") || urlStr.includes("githubusercontent.com")) && !urlStr.includes("ghproxy")) {
+        const ghproxyUrls = ["https://ghproxy.net/", "https://mirror.ghproxy.com/"];
+        for (const proxy of ghproxyUrls) {
+          try {
+            console.log(`[EPG SYNC RECOVERY] Retrying via ${proxy}...`);
+            let proxyUrl = proxy + urlStr;
+            if (urlStr.includes("raw.githubusercontent.com")) {
+               proxyUrl = proxy + urlStr.replace("raw.githubusercontent.com", "raw.githubusercontent.com"); // ghproxy handles it
+            }
+            return await downloadDirectly(proxyUrl);
+          } catch (e: any) {
+            console.error(`[EPG SYNC RECOVERY] Failed via ${proxy}: ${e.message}`);
+          }
+        }
+      }
       console.error(`[EPG SYNC RECOVERY FAILED] ${urlStr}: ${fallbackErr.message || fallbackErr}`);
       throw new Error(fallbackErr.message || "Fetch failed");
     }
