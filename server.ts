@@ -2733,6 +2733,14 @@ async function startServer() {
     const allGroupIds = new Set<string>();
     const logoCandidates: string[] = [];
     const epgIdCandidates: string[] = [];
+    
+    // String candidates for additional fields
+    const descriptionCandidates: string[] = [];
+    const provinceCandidates: string[] = [];
+    const cityCandidates: string[] = [];
+    const categoryCandidates: string[] = [];
+    const frequencyCandidates: string[] = [];
+    let bestGain = primaryChannel.gain;
 
     targetChannels.forEach(c => {
       if (c.name) allNames.add(c.name.trim());
@@ -2749,6 +2757,17 @@ async function startServer() {
       }
       if (c.epgId && c.epgId.trim()) {
         epgIdCandidates.push(c.epgId.trim());
+      }
+      if (c.description && c.description.trim()) descriptionCandidates.push(c.description.trim());
+      if (c.province && c.province.trim()) provinceCandidates.push(c.province.trim());
+      if (c.city && c.city.trim()) cityCandidates.push(c.city.trim());
+      if (c.category && c.category.trim()) categoryCandidates.push(c.category.trim());
+      if (c.frequency && c.frequency.trim()) frequencyCandidates.push(c.frequency.trim());
+      
+      // Look for a non-default gain
+      if ((bestGain === undefined || bestGain === null || bestGain === 1) && 
+          c.gain !== undefined && c.gain !== null && c.gain !== 1) {
+        bestGain = c.gain;
       }
     });
 
@@ -2808,8 +2827,17 @@ async function startServer() {
     primaryChannel.logo = bestLogo;
     primaryChannel.epgId = bestEpgId;
     primaryChannel.groupIds = Array.from(allGroupIds);
+    primaryChannel.tagIds = Array.from(allGroupIds); // sync both just in case
     primaryChannel.alias = Array.from(allAliases).filter(a => a !== primaryName);
     primaryChannel.sources = mergedSources;
+    
+    // Fill in missing optional metadata fields
+    if (!primaryChannel.description) primaryChannel.description = descriptionCandidates[0] || "";
+    if (!primaryChannel.province) primaryChannel.province = provinceCandidates[0] || "";
+    if (!primaryChannel.city) primaryChannel.city = cityCandidates[0] || "";
+    if (!primaryChannel.category) primaryChannel.category = categoryCandidates[0] || "";
+    if (!primaryChannel.frequency) primaryChannel.frequency = frequencyCandidates[0] || "";
+    if (bestGain !== undefined) primaryChannel.gain = bestGain;
 
     const otherIdsToMerge = channelIds.filter(id => id !== primaryChannel.id);
     channels = channels.filter(c => !otherIdsToMerge.includes(c.id));

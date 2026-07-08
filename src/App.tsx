@@ -207,6 +207,9 @@ export default function App() {
   const [pasteType, setPasteType] = useState<"m3u" | "txt">("m3u");
   const [isImportingText, setIsImportingText] = useState(false);
 
+  // API documentation tab state
+  const [apiDocTab, setApiDocTab] = useState<"channels" | "sources">("channels");
+
   // EPG preview guide state
   const [epgGuide, setEpgGuide] = useState<EpgGuide | null>(null);
   const [epgLoading, setEpgLoading] = useState(false);
@@ -4171,6 +4174,330 @@ export default function App() {
                     </div>
 
                   </div>
+                </div>
+
+                {/* Public API Endpoints Documentation */}
+                <div className="bg-white p-6 rounded-2xl border border-slate-200 space-y-6 animate-fade-in" id="public_api_doc_card">
+                  <div className="border-b border-slate-100 pb-4">
+                    <h3 className="font-bold text-slate-800 text-sm flex items-center">
+                      <Database className="w-4 h-4 mr-1.5 text-indigo-600" />
+                      开放 API 接口文档
+                    </h3>
+                    <p className="text-xs text-slate-400 mt-1">
+                      系统提供了一套完整的开放 JSON API 接口，方便集成到外部导航、前端应用或第三方自动化脚本中。
+                    </p>
+                  </div>
+
+                  {/* Doc navigation tabs */}
+                  <div className="flex border-b border-slate-100 text-xs">
+                    <button
+                      onClick={() => setApiDocTab("channels")}
+                      className={`pb-2.5 px-4 font-bold border-b-2 -mb-[1px] transition ${
+                        apiDocTab === "channels"
+                          ? "border-indigo-600 text-indigo-600"
+                          : "border-transparent text-slate-500 hover:text-slate-800"
+                      }`}
+                    >
+                      获取频道列表 (/api/public/channels)
+                    </button>
+                    <button
+                      onClick={() => setApiDocTab("sources")}
+                      className={`pb-2.5 px-4 font-bold border-b-2 -mb-[1px] transition ${
+                        apiDocTab === "sources"
+                          ? "border-indigo-600 text-indigo-600"
+                          : "border-transparent text-slate-500 hover:text-slate-800"
+                      }`}
+                    >
+                      获取播放线路 (/api/public/channels/:id/sources)
+                    </button>
+                  </div>
+
+                  {/* Doc content */}
+                  {apiDocTab === "channels" ? (
+                    <div className="space-y-4 text-xs">
+                      <div>
+                        <span className="inline-block bg-emerald-50 text-emerald-700 font-bold px-2.5 py-1 rounded-md text-[10px] font-mono mr-2">GET</span>
+                        <span className="font-mono font-bold text-slate-700">/api/public/channels</span>
+                      </div>
+
+                      <p className="text-slate-600 leading-relaxed text-[11px]">
+                        支持分页、关键字模糊查询、分类、标签/分组、地域等进行高维交叉筛选，获取系统的电台频道清单。
+                      </p>
+
+                      {/* Query parameters table */}
+                      <div className="border border-slate-100 rounded-xl overflow-hidden">
+                        <table className="w-full text-left border-collapse">
+                          <thead>
+                            <tr className="bg-slate-50/75 text-[10px] text-slate-500 font-bold border-b border-slate-100">
+                              <th className="p-3">参数名</th>
+                              <th className="p-3">类型</th>
+                              <th className="p-3">必填</th>
+                              <th className="p-3">说明</th>
+                              <th className="p-3">示例</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-slate-100 text-[11px] text-slate-600 font-sans">
+                            <tr>
+                              <td className="p-3 font-mono font-medium text-slate-800">page</td>
+                              <td className="p-3 font-mono text-slate-400">number</td>
+                              <td className="p-3">否</td>
+                              <td className="p-3">页码，默认为 1</td>
+                              <td className="p-3 font-mono">1</td>
+                            </tr>
+                            <tr>
+                              <td className="p-3 font-mono font-medium text-slate-800">pageSize</td>
+                              <td className="p-3 font-mono text-slate-400">number</td>
+                              <td className="p-3">否</td>
+                              <td className="p-3">每页条数，最大 100，默认 20</td>
+                              <td className="p-3 font-mono">20</td>
+                            </tr>
+                            <tr>
+                              <td className="p-3 font-mono font-medium text-slate-800">keyword</td>
+                              <td className="p-3 font-mono text-slate-400">string</td>
+                              <td className="p-3">否</td>
+                              <td className="p-3">频道名或别名模糊匹配</td>
+                              <td className="p-3 font-mono">音乐</td>
+                            </tr>
+                            <tr>
+                              <td className="p-3 font-mono font-medium text-slate-800">tagId</td>
+                              <td className="p-3 font-mono text-slate-400">string</td>
+                              <td className="p-3">否</td>
+                              <td className="p-3">标签/分类分组 UUID</td>
+                              <td className="p-3 font-mono">abc-123</td>
+                            </tr>
+                            <tr>
+                              <td className="p-3 font-mono font-medium text-slate-800">tagName</td>
+                              <td className="p-3 font-mono text-slate-400">string</td>
+                              <td className="p-3">否</td>
+                              <td className="p-3">标签/分组名称模糊匹配</td>
+                              <td className="p-3 font-mono">国家台</td>
+                            </tr>
+                            <tr>
+                              <td className="p-3 font-mono font-medium text-slate-800">province</td>
+                              <td className="p-3 font-mono text-slate-400">string</td>
+                              <td className="p-3">否</td>
+                              <td className="p-3">省份筛选</td>
+                              <td className="p-3 font-mono">北京</td>
+                            </tr>
+                            <tr>
+                              <td className="p-3 font-mono font-medium text-slate-800">city</td>
+                              <td className="p-3 font-mono text-slate-400">string</td>
+                              <td className="p-3">否</td>
+                              <td className="p-3">城市筛选</td>
+                              <td className="p-3 font-mono">朝阳</td>
+                            </tr>
+                            <tr>
+                              <td className="p-3 font-mono font-medium text-slate-800">category</td>
+                              <td className="p-3 font-mono text-slate-400">string</td>
+                              <td className="p-3">否</td>
+                              <td className="p-3">类型分类筛选</td>
+                              <td className="p-3 font-mono">资讯</td>
+                            </tr>
+                            <tr>
+                              <td className="p-3 font-mono font-medium text-slate-800">status</td>
+                              <td className="p-3 font-mono text-slate-400">string</td>
+                              <td className="p-3">否</td>
+                              <td className="p-3">直播源状态筛选 (active/inactive)</td>
+                              <td className="p-3 font-mono">active</td>
+                            </tr>
+                          </tbody>
+                        </table>
+                      </div>
+
+                      {/* Example Call */}
+                      <div className="space-y-2">
+                        <span className="font-bold text-slate-700 block">请求示例：</span>
+                        <div className="flex items-center gap-2">
+                          <span className="flex-1 bg-slate-50 border border-slate-150 p-2.5 rounded-xl font-mono text-[10px] text-slate-600 truncate">
+                            {getFullHostUrl()}/api/public/channels?page=1&pageSize=2&keyword=音乐
+                          </span>
+                          <button 
+                            onClick={() => {
+                              copyTextToClipboard(`${getFullHostUrl()}/api/public/channels?page=1&pageSize=2&keyword=音乐`);
+                              showFeedback("success", "已复制请求示例 URL");
+                            }}
+                            className="bg-slate-900 hover:bg-slate-800 text-slate-50 p-2.5 rounded-xl transition flex-shrink-0 cursor-pointer"
+                          >
+                            <Copy className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      </div>
+
+                      {/* Example Response JSON */}
+                      <div className="space-y-2">
+                        <div className="flex justify-between items-center">
+                          <span className="font-bold text-slate-700">响应示例 (JSON)：</span>
+                          <button 
+                            onClick={() => {
+                              copyTextToClipboard(JSON.stringify({
+    "success": true,
+    "page": 1,
+    "pageSize": 2,
+    "total": 12,
+    "totalPages": 6,
+    "data": [
+      {
+        "id": "qingting-1002",
+        "name": "CNR 中国之声",
+        "logo": "https://img.qingting.fm/1002.png",
+        "tagIds": ["national-tag-id"],
+        "alias": ["中央人民广播电台"],
+        "epgId": "cnr_1",
+        "description": "中国国家广播电台主频率",
+        "province": "北京",
+        "city": "",
+        "category": "新闻资讯",
+        "frequency": "FM 106.1",
+        "gain": 1.2,
+        "sourcesCount": 2
+      }
+    ]
+  }, null, 2));
+                              showFeedback("success", "已复制响应 JSON 示例");
+                            }}
+                            className="text-indigo-600 hover:text-indigo-800 text-[10px] font-bold flex items-center gap-1 bg-transparent border-none p-0 cursor-pointer"
+                          >
+                            <Copy className="w-3 h-3" /> 复制 JSON
+                          </button>
+                        </div>
+                        <pre className="p-4 bg-slate-950 text-slate-100 rounded-xl font-mono text-[10px] leading-relaxed overflow-x-auto max-h-64">
+{`{
+  "success": true,
+  "page": 1,
+  "pageSize": 2,
+  "total": 12,
+  "totalPages": 6,
+  "data": [
+    {
+      "id": "qingting-1002",
+      "name": "CNR 中国之声",
+      "logo": "https://img.qingting.fm/1002.png",
+      "tagIds": ["national-tag-id"],
+      "alias": ["中央人民广播电台"],
+      "epgId": "cnr_1",
+      "description": "中国国家广播电台主频率",
+      "province": "北京",
+      "city": "",
+      "category": "新闻资讯",
+      "frequency": "FM 106.1",
+      "gain": 1.2,
+      "sourcesCount": 2
+    }
+  ]
+}`}
+                        </pre>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="space-y-4 text-xs">
+                      <div>
+                        <span className="inline-block bg-emerald-50 text-emerald-700 font-bold px-2.5 py-1 rounded-md text-[10px] font-mono mr-2">GET</span>
+                        <span className="font-mono font-bold text-slate-700">/api/public/channels/:id/sources</span>
+                      </div>
+
+                      <p className="text-slate-600 leading-relaxed text-[11px]">
+                        根据电台频道 UUID/ID 获取其绑定的具体播放线路及其实时状态、响应延迟等元数据。
+                      </p>
+
+                      {/* Query parameters table */}
+                      <div className="border border-slate-100 rounded-xl overflow-hidden">
+                        <table className="w-full text-left border-collapse">
+                          <thead>
+                            <tr className="bg-slate-50/75 text-[10px] text-slate-500 font-bold border-b border-slate-100">
+                              <th className="p-3">参数名</th>
+                              <th className="p-3">类型</th>
+                              <th className="p-3">位置</th>
+                              <th className="p-3">必填</th>
+                              <th className="p-3">说明</th>
+                              <th className="p-3">示例</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-slate-100 text-[11px] text-slate-600 font-sans">
+                            <tr>
+                              <td className="p-3 font-mono font-medium text-slate-800">id</td>
+                              <td className="p-3 font-mono text-slate-400">string</td>
+                              <td className="p-3">Path</td>
+                              <td className="p-3">是</td>
+                              <td className="p-3">频道的唯一标识符</td>
+                              <td className="p-3 font-mono">qingting-1002</td>
+                            </tr>
+                            <tr>
+                              <td className="p-3 font-mono font-medium text-slate-800">status</td>
+                              <td className="p-3 font-mono text-slate-400">string</td>
+                              <td className="p-3">Query</td>
+                              <td className="p-3">否</td>
+                              <td className="p-3">线路状态 (active/inactive)</td>
+                              <td className="p-3 font-mono">active</td>
+                            </tr>
+                          </tbody>
+                        </table>
+                      </div>
+
+                      {/* Example Call */}
+                      <div className="space-y-2">
+                        <span className="font-bold text-slate-700 block">请求示例：</span>
+                        <div className="flex items-center gap-2">
+                          <span className="flex-1 bg-slate-50 border border-slate-150 p-2.5 rounded-xl font-mono text-[10px] text-slate-600 truncate">
+                            {getFullHostUrl()}/api/public/channels/qingting-1002/sources?status=active
+                          </span>
+                          <button 
+                            onClick={() => {
+                              copyTextToClipboard(`${getFullHostUrl()}/api/public/channels/qingting-1002/sources?status=active`);
+                              showFeedback("success", "已复制请求示例 URL");
+                            }}
+                            className="bg-slate-900 hover:bg-slate-800 text-slate-50 p-2.5 rounded-xl transition flex-shrink-0 cursor-pointer"
+                          >
+                            <Copy className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      </div>
+
+                      {/* Example Response JSON */}
+                      <div className="space-y-2">
+                        <div className="flex justify-between items-center">
+                          <span className="font-bold text-slate-700">响应示例 (JSON)：</span>
+                          <button 
+                            onClick={() => {
+                              copyTextToClipboard(JSON.stringify({
+    "success": true,
+    "channelId": "qingting-1002",
+    "channelName": "CNR 中国之声",
+    "sources": [
+      {
+        "id": "source-1",
+        "url": "https://lhttp.qingting.fm/live/1002/64k.mp3",
+        "status": "active",
+        "latency": 45,
+        "lastChecked": "2026-07-07T10:00:00.000Z"
+      }
+    ]
+  }, null, 2));
+                              showFeedback("success", "已复制响应 JSON 示例");
+                            }}
+                            className="text-indigo-600 hover:text-indigo-800 text-[10px] font-bold flex items-center gap-1 bg-transparent border-none p-0 cursor-pointer"
+                          >
+                            <Copy className="w-3 h-3" /> 复制 JSON
+                          </button>
+                        </div>
+                        <pre className="p-4 bg-slate-950 text-slate-100 rounded-xl font-mono text-[10px] leading-relaxed overflow-x-auto max-h-64">
+{`{
+  "success": true,
+  "channelId": "qingting-1002",
+  "channelName": "CNR 中国之声",
+  "sources": [
+    {
+      "id": "source-1",
+      "url": "https://lhttp.qingting.fm/live/1002/64k.mp3",
+      "status": "active",
+      "latency": 45,
+      "lastChecked": "2026-07-07T10:00:00.000Z"
+    }
+  ]
+}`}
+                        </pre>
+                      </div>
+                    </div>
+                  )}
                 </div>
 
               </div>
