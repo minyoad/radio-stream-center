@@ -218,6 +218,7 @@ export default function App() {
   const [aiRecommends, setAiRecommends] = useState<{ epgId: string; displayName: string; reason: string; confidence: number }[]>([]);
   const [aiRecommendLoading, setAiRecommendLoading] = useState(false);
   const [aiRecommendError, setAiRecommendError] = useState("");
+  const [isAiEnriching, setIsAiEnriching] = useState(false);
 
   // Batch channel operations state
   const [selectedChannelIds, setSelectedChannelIds] = useState<string[]>([]);
@@ -1887,6 +1888,61 @@ export default function App() {
       showFeedback("error", "无法加载 EPG 导视表");
     } finally {
       setEpgLoading(false);
+    }
+  };
+
+  const runAiEnrich = async () => {
+    if (!channelForm.name.trim()) {
+      showFeedback("error", "请先填写频道名称");
+      return;
+    }
+    setIsAiEnriching(true);
+    try {
+      const res = await fetch("/api/channels/ai-enrich", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ 
+          name: channelForm.name,
+          currentData: {
+            description: channelForm.description,
+            province: channelForm.province,
+            city: channelForm.city,
+            category: channelForm.category,
+            frequency: channelForm.frequency,
+            alias: channelForm.alias
+          }
+        })
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        const enriched = data.data;
+        const newForm = { ...channelForm };
+        if (enriched.logo && !newForm.logo) newForm.logo = enriched.logo;
+        if (enriched.description && !newForm.description) newForm.description = enriched.description;
+        if (enriched.province && !newForm.province) newForm.province = enriched.province;
+        if (enriched.city && !newForm.city) newForm.city = enriched.city;
+        if (enriched.category && !newForm.category) newForm.category = enriched.category;
+        if (enriched.frequency && !newForm.frequency) newForm.frequency = enriched.frequency;
+        
+        if (enriched.alias && Array.isArray(enriched.alias) && enriched.alias.length > 0) {
+          const currentAliases = newForm.alias.split(',').map(s => s.trim()).filter(s => s);
+          enriched.alias.forEach((a: string) => {
+            if (!currentAliases.includes(a)) {
+              currentAliases.push(a);
+            }
+          });
+          newForm.alias = currentAliases.join(", ");
+        }
+
+        setChannelForm(newForm);
+        showFeedback("success", "AI 智能补全成功");
+      } else {
+        showFeedback("error", data.error || "AI 补全失败");
+      }
+    } catch (err: any) {
+      showFeedback("error", err.message || "请求 AI 失败");
+    } finally {
+      setIsAiEnriching(false);
     }
   };
 
@@ -5229,6 +5285,22 @@ export default function App() {
             
             <div className="p-6 overflow-y-auto flex-1">
               <form id="channelForm" onSubmit={handleSaveChannel} className="space-y-4 text-xs font-semibold text-slate-600">
+              
+              <div className="bg-indigo-50/50 p-3.5 rounded-xl border border-indigo-100 flex items-center justify-between font-sans mb-2">
+                <div className="pr-4">
+                  <h4 className="text-[11px] font-bold text-indigo-800 mb-0.5">✨ AI 智能元数据补全</h4>
+                  <p className="text-[9px] text-indigo-600/80 leading-relaxed">根据频道名称，自动从大模型提取缺失介绍、分类、地域、别名等信息（保留原有数据不覆盖）。</p>
+                </div>
+                <button
+                  type="button"
+                  onClick={runAiEnrich}
+                  disabled={isAiEnriching || !channelForm.name.trim()}
+                  className="bg-indigo-600 hover:bg-indigo-700 text-white text-[10px] font-bold px-3 py-1.5 rounded-lg transition disabled:bg-indigo-300 disabled:cursor-not-allowed flex-shrink-0 cursor-pointer shadow-sm"
+                >
+                  {isAiEnriching ? "处理中..." : "一键补全"}
+                </button>
+              </div>
+
               <div className="space-y-1.5 font-sans">
                 <label>频道标准中文名称 (Standard Name) *</label>
                 <input 
@@ -5254,25 +5326,20 @@ export default function App() {
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div className="space-y-1.5 font-sans">
-                  <label>所属分类 (Category)</label>
-                  <input type="text"
-                    list="category-options"
-                    value={channelForm.category || ""}
-                    onChange={(e)=>setChannelForm({...channelForm, category: e.target.value})}
-                    placeholder="如: 新闻 / 音乐"
-                    className="w-full text-xs p-2.5 border border-slate-200 rounded-xl focus:border-indigo-500 bg-slate-50 focus:outline-none placeholder-slate-400 text-slate-800 font-sans"
-                  />
-                  <datalist id="category-options">
-                    {tags.filter(t => t.name !== "全部" && t.name !== "未分组").map(t => (
-                      <option key={t.id} value={t.name} />
-                    ))}
-                  </datalist>
-                </div>
-                <div className="space-y-1.5 font-sans">
                   <label>所属省份 (Province)</label>
                   <input type="text"
                     value={channelForm.province || ""}
                     onChange={(e)=>setChannelForm({...channelForm, province: e.target.value})}
+                    placeholder="如: 北京"
+                    className="w-full text-xs p-2.5 border border-slate-200 rounded-xl focus:border-indigo-500 bg-slate-50 focus:outline-none placeholder-slate-400 text-slate-800 font-sans"
+                  />
+                </div>
+
+                <div className="space-y-1.5 font-sans">
+                  <label>所属城市 (City)</label>
+                  <input type="text"
+                    value={channelForm.city || ""}
+                    onChange={(e)=>setChannelForm({...channelForm, city: e.target.value})}
                     placeholder="如: 北京"
                     className="w-full text-xs p-2.5 border border-slate-200 rounded-xl focus:border-indigo-500 bg-slate-50 focus:outline-none placeholder-slate-400 text-slate-800 font-sans"
                   />
@@ -5287,22 +5354,13 @@ export default function App() {
                     className="w-full text-xs p-2.5 border border-slate-200 rounded-xl focus:border-indigo-500 bg-slate-50 focus:outline-none placeholder-slate-400 text-slate-800 font-sans"
                   />
                 </div>
+
                 <div className="space-y-1.5 font-sans">
                   <label>电台音量增益 (Gain)</label>
                   <input type="number" step="0.1"
                     value={channelForm.gain ?? 1}
                     onChange={(e)=>setChannelForm({...channelForm, gain: parseFloat(e.target.value) || 1})}
                     placeholder="如: 1"
-                    className="w-full text-xs p-2.5 border border-slate-200 rounded-xl focus:border-indigo-500 bg-slate-50 focus:outline-none placeholder-slate-400 text-slate-800 font-sans"
-                  />
-                </div>
-
-                <div className="space-y-1.5 font-sans">
-                  <label>所属城市 (City)</label>
-                  <input type="text"
-                    value={channelForm.city || ""}
-                    onChange={(e)=>setChannelForm({...channelForm, city: e.target.value})}
-                    placeholder="如: 北京"
                     className="w-full text-xs p-2.5 border border-slate-200 rounded-xl focus:border-indigo-500 bg-slate-50 focus:outline-none placeholder-slate-400 text-slate-800 font-sans"
                   />
                 </div>

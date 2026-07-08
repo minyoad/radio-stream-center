@@ -1459,7 +1459,7 @@ async function performSync(config: SyncConfig, force = false) {
           
 
           // Find or create correct Tag entities for this category (comma/semicolon split for many-to-many relationship)
-          const catNames = currentInfo.category.split(/[,;，；]/).map(s => s.trim()).filter(Boolean);
+          const catNames = currentInfo.category.split(/[,;，；、/|\\ ]+/).map((s: string) => s.trim()).filter(Boolean);
           if (catNames.length === 0) catNames.push("其它频道");
           
           const matchedGroupIds: string[] = [];
@@ -1566,7 +1566,7 @@ async function performSync(config: SyncConfig, force = false) {
           name = stripBitrateAndResolution(name);
 
           // Resolve group
-          const catNames = currentCategory.split(/[,;，；]/).map(s => s.trim()).filter(Boolean);
+          const catNames = currentCategory.split(/[,;，；、/|\\ ]+/).map((s: string) => s.trim()).filter(Boolean);
           if (catNames.length === 0) catNames.push("其它频道");
 
           const matchedGroupIds: string[] = [];
@@ -2533,6 +2533,58 @@ async function startServer() {
   });
 
 
+  app.post("/api/channels/ai-enrich", async (req, res) => {
+    try {
+      const { name, currentData } = req.body;
+      if (!name) {
+        return res.status(400).json({ error: "频道名称不能为空" });
+      }
+
+      if (!process.env.GEMINI_API_KEY) {
+        return res.status(400).json({ error: "服务器未配置 GEMINI_API_KEY，无法使用 AI 功能" });
+      }
+
+      const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+      
+      const prompt = `你是一个专业的电视广播频道元数据补全助手。
+我提供了一个频道名称（可能还有当前的元数据），请你根据你的知识库，补全缺失的电台相关信息。
+
+频道名称: ${name}
+${currentData ? `当前已知信息:\n${JSON.stringify(currentData, null, 2)}` : ''}
+
+请返回尽可能详细和准确的信息。如果不确定，请留空。不要生造虚假数据。`;
+
+      const response = await ai.models.generateContent({
+        model: "gemini-2.5-flash",
+        contents: prompt,
+        config: {
+          responseMimeType: "application/json",
+          responseSchema: {
+            type: Type.OBJECT,
+            properties: {
+              logo: { type: Type.STRING, description: "高质量的频道台标/Logo图片公开可用URL (PNG/SVG格式，建议使用维基百科或官方资源)" },
+              description: { type: Type.STRING, description: "该频道的简短描述 (1-2句话)" },
+              province: { type: Type.STRING, description: "该频道所属的中国省份/直辖市名称（如果适用，如 '北京', '广东'）" },
+              city: { type: Type.STRING, description: "该频道所属的城市名称（如果适用）" },
+              category: { type: Type.STRING, description: "频道的分类，如：央视、卫视、地方台、综合、新闻、少儿、体育、电影" },
+              alias: { type: Type.ARRAY, items: { type: Type.STRING }, description: "该频道的其他常见别名或曾用名" },
+              frequency: { type: Type.STRING, description: "该频道的FM频段或其他频率信息（适用于广播电台），如未提供请留空" }
+            }
+          }
+        }
+      });
+
+      const result = response.text;
+      if (!result) throw new Error("AI 返回了空结果");
+
+      const parsedResult = JSON.parse(result);
+      res.json({ success: true, data: parsedResult });
+    } catch (err: any) {
+      console.error("[AI Enrich Error]", err.message);
+      res.status(500).json({ error: err.message || "AI 补全失败" });
+    }
+  });
+
   app.post("/api/channels", (req, res) => {
     const { name, groupIds, category, logo, alias, epgId, description, province, city, frequency, gain } = req.body;
     if (!name) {
@@ -3275,13 +3327,16 @@ async function startServer() {
                 }
 
                 if (ch.category) {
-                   let tg = tags.find(t => t.name === ch.category);
-                   if (!tg) {
-                       tg = { id: "g_" + Math.random().toString(36).substring(2,10), name: ch.category };
-                       tags.push(tg);
+                   const cats = ch.category.split(/[,，、/|\\ \t]+/).map((s: string) => s.trim()).filter(Boolean);
+                   for (const catName of cats) {
+                       let tg = tags.find(t => t.name === catName);
+                       if (!tg) {
+                           tg = { id: "g_" + Math.random().toString(36).substring(2,10), name: catName };
+                           tags.push(tg);
+                       }
+                       if (!ch.tagIds.includes(tg.id)) ch.tagIds.push(tg.id);
+                       if (!ch.groupIds.includes(tg.id)) ch.groupIds.push(tg.id);
                    }
-                   if (!ch.tagIds.includes(tg.id)) ch.tagIds.push(tg.id);
-                   if (!ch.groupIds.includes(tg.id)) ch.groupIds.push(tg.id);
                 }
 
                 channels.push(ch);
@@ -3350,13 +3405,16 @@ async function startServer() {
                 };
 
                 if (ch.category) {
-                   let tg = tags.find(t => t.name === ch.category);
-                   if (!tg) {
-                       tg = { id: "g_" + Math.random().toString(36).substring(2,10), name: ch.category };
-                       tags.push(tg);
+                   const cats = ch.category.split(/[,，、/|\\ \t]+/).map((s: string) => s.trim()).filter(Boolean);
+                   for (const catName of cats) {
+                       let tg = tags.find(t => t.name === catName);
+                       if (!tg) {
+                           tg = { id: "g_" + Math.random().toString(36).substring(2,10), name: catName };
+                           tags.push(tg);
+                       }
+                       if (!ch.tagIds.includes(tg.id)) ch.tagIds.push(tg.id);
+                       if (!ch.groupIds.includes(tg.id)) ch.groupIds.push(tg.id);
                    }
-                   ch.tagIds.push(tg.id);
-                   ch.groupIds.push(tg.id);
                 }
 
                 channels.push(ch);
@@ -3445,7 +3503,7 @@ async function startServer() {
             
 
             // Resolve categories
-            const catNames = currentInfo.category.split(/[,;，；]/).map((s: string) => s.trim()).filter(Boolean);
+            const catNames = currentInfo.category.split(/[,;，；、/|\\ ]+/).map((s: string) => s.trim()).filter(Boolean);
             if (catNames.length === 0) catNames.push("手动导入");
 
             const matchedGroupIds: string[] = [];
@@ -3539,7 +3597,7 @@ async function startServer() {
             name = stripBitrateAndResolution(name);
 
             // Resolve categories
-            const catNames = currentCategory.split(/[,;，；]/).map((s: string) => s.trim()).filter(Boolean);
+            const catNames = currentCategory.split(/[,;，；、/|\\ ]+/).map((s: string) => s.trim()).filter(Boolean);
             if (catNames.length === 0) catNames.push("手动导入");
 
             const matchedGroupIds: string[] = [];
