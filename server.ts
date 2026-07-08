@@ -10,6 +10,7 @@ import http from "http";
 import https from "https";
 import crypto from "crypto";
 import { GoogleGenAI, Type } from "@google/genai";
+import OpenAI from "openai";
 import Database from "better-sqlite3";
 function getPlayableSources(sources: any[]) {
   return sources;
@@ -101,6 +102,12 @@ let epgSources: EpgSource[] = [];
 let adminPassword = process.env.ADMIN_PASSWORD || "";
 let githubProxy = "";
 let geminiApiKey = "";
+let aiProvider = "gemini";
+let openaiApiKey = "";
+let openaiBaseUrl = "";
+let openaiModel = "";
+let openrouterApiKey = "";
+let openrouterModel = "";
 let autoCreateChannel = true;
 
 const SQLITE_DB_PATH = path.join(DATA_DIR, "radio_sqlite.db");
@@ -542,6 +549,12 @@ function loadData() {
         if (row.key === "adminPassword") adminPassword = row.value;
         if (row.key === "githubProxy") githubProxy = row.value;
         if (row.key === "geminiApiKey") geminiApiKey = row.value;
+        if (row.key === "aiProvider") aiProvider = row.value;
+        if (row.key === "openaiApiKey") openaiApiKey = row.value;
+        if (row.key === "openaiBaseUrl") openaiBaseUrl = row.value;
+        if (row.key === "openaiModel") openaiModel = row.value;
+        if (row.key === "openrouterApiKey") openrouterApiKey = row.value;
+        if (row.key === "openrouterModel") openrouterModel = row.value;
         if (row.key === "autoCreateChannel") autoCreateChannel = (row.value === "true" || row.value === "1");
       }
 
@@ -743,6 +756,12 @@ function saveData() {
       insertSetting.run("adminPassword", adminPassword);
       insertSetting.run("githubProxy", githubProxy);
       insertSetting.run("geminiApiKey", geminiApiKey);
+      insertSetting.run("aiProvider", aiProvider);
+      insertSetting.run("openaiApiKey", openaiApiKey);
+      insertSetting.run("openaiBaseUrl", openaiBaseUrl);
+      insertSetting.run("openaiModel", openaiModel);
+      insertSetting.run("openrouterApiKey", openrouterApiKey);
+      insertSetting.run("openrouterModel", openrouterModel);
       insertSetting.run("autoCreateChannel", autoCreateChannel ? "true" : "false");
 
       // 2. Sync tags
@@ -1184,6 +1203,52 @@ function getGeminiClient(): GoogleGenAI {
     });
   }
   return geminiClient;
+}
+
+let openaiClient: OpenAI | null = null;
+let currentOpenAiState = "";
+
+function getOpenAiClient(baseUrl: string, apiKey: string): OpenAI {
+  const stateKey = baseUrl + ":" + apiKey;
+  if (!openaiClient || currentOpenAiState !== stateKey) {
+    currentOpenAiState = stateKey;
+    openaiClient = new OpenAI({
+      baseURL: baseUrl || undefined,
+      apiKey: apiKey,
+    });
+  }
+  return openaiClient;
+}
+
+async function generateAIContent(prompt: string, schema: any, defaultModelGemini: string, defaultModelOpenAI: string) {
+  if (aiProvider === "openai" || aiProvider === "openrouter") {
+    const isOr = aiProvider === "openrouter";
+    const key = isOr ? openrouterApiKey : openaiApiKey;
+    let base = isOr ? openaiBaseUrl || "https://openrouter.ai/api/v1" : openaiBaseUrl;
+    const model = (isOr ? openrouterModel : openaiModel) || defaultModelOpenAI;
+    if (!key) throw new Error(`未配置 ${isOr ? 'OpenRouter' : 'OpenAI'} API Key`);
+    
+    const client = getOpenAiClient(base, key);
+    const completion = await client.chat.completions.create({
+      model: model,
+      messages: [{ role: "user", content: prompt }],
+      response_format: { type: "json_object" }
+    });
+    
+    return completion.choices[0]?.message?.content || "";
+  } else {
+    // Default to Gemini
+    const ai = getGeminiClient();
+    const response = await ai.models.generateContent({
+      model: defaultModelGemini,
+      contents: prompt,
+      config: {
+        responseMimeType: "application/json",
+        responseSchema: schema
+      }
+    });
+    return response.text;
+  }
 }
 
 const ipGeoCache = new Map<string, any>();
@@ -1938,27 +2003,77 @@ async function startServer() {
   // API Endpoints
   // Settings Endpoints
   app.get("/api/settings", (req, res) => {
-    res.json({ githubProxy, autoCreateChannel, geminiApiKey: geminiApiKey ? geminiApiKey.substring(0, 5) + "..." + geminiApiKey.slice(-4) : "" });
+    res.json({
+      githubProxy, 
+      autoCreateChannel, 
+      aiProvider,
+      geminiApiKey: geminiApiKey ? geminiApiKey.substring(0, 5) + "..." + geminiApiKey.slice(-4) : "",
+      openaiApiKey: openaiApiKey ? openaiApiKey.substring(0, 5) + "..." + openaiApiKey.slice(-4) : "",
+      openaiBaseUrl,
+      openaiModel,
+      openrouterApiKey: openrouterApiKey ? openrouterApiKey.substring(0, 5) + "..." + openrouterApiKey.slice(-4) : "",
+      openrouterModel,
+    });
   });
 
   app.post("/api/settings", (req, res) => {
-    const { githubProxy: proxy, autoCreateChannel: autoCreate, geminiApiKey: geminiKey } = req.body;
+    const { 
+      githubProxy: proxy, 
+      autoCreateChannel: autoCreate, 
+      geminiApiKey: geminiKey,
+      aiProvider: provider,
+      openaiApiKey: openaiKey,
+      openaiBaseUrl: openaiBase,
+      openaiModel: oModel,
+      openrouterApiKey: openrouterKey,
+      openrouterModel: orModel
+    } = req.body;
     if (proxy !== undefined) {
       githubProxy = (proxy || "").trim();
     }
     if (autoCreate !== undefined) {
       autoCreateChannel = !!autoCreate;
     }
-    if (geminiKey !== undefined) {
-      // If it includes '...', it's the masked version, ignore it
-      if (geminiKey && !geminiKey.includes("...")) {
-        geminiApiKey = geminiKey.trim();
-      } else if (geminiKey === "") {
-        geminiApiKey = "";
-      }
+    if (provider !== undefined) {
+      aiProvider = provider;
     }
+    if (openaiBase !== undefined) {
+      openaiBaseUrl = openaiBase.trim();
+    }
+    if (oModel !== undefined) {
+      openaiModel = oModel.trim();
+    }
+    if (orModel !== undefined) {
+      openrouterModel = orModel.trim();
+    }
+    
+    const applyKey = (keyName: string, val: any, setFn: (val: string) => void) => {
+      if (val !== undefined) {
+        if (val && !val.includes("...")) {
+          setFn(val.trim());
+        } else if (val === "") {
+          setFn("");
+        }
+      }
+    };
+    
+    applyKey('geminiApiKey', geminiKey, (v) => geminiApiKey = v);
+    applyKey('openaiApiKey', openaiKey, (v) => openaiApiKey = v);
+    applyKey('openrouterApiKey', openrouterKey, (v) => openrouterApiKey = v);
+
     saveData();
-    res.json({ success: true, githubProxy, autoCreateChannel, geminiApiKey: geminiApiKey ? geminiApiKey.substring(0, 5) + "..." + geminiApiKey.slice(-4) : "" });
+    res.json({ 
+      success: true, 
+      githubProxy, 
+      autoCreateChannel, 
+      aiProvider,
+      geminiApiKey: geminiApiKey ? geminiApiKey.substring(0, 5) + "..." + geminiApiKey.slice(-4) : "",
+      openaiApiKey: openaiApiKey ? openaiApiKey.substring(0, 5) + "..." + openaiApiKey.slice(-4) : "",
+      openaiBaseUrl,
+      openaiModel,
+      openrouterApiKey: openrouterApiKey ? openrouterApiKey.substring(0, 5) + "..." + openrouterApiKey.slice(-4) : "",
+      openrouterModel,
+    });
   });
 
   // EPG Sources REST Endpoints
@@ -2557,8 +2672,6 @@ async function startServer() {
         return res.status(400).json({ error: "频道名称不能为空" });
       }
 
-      const ai = getGeminiClient();
-      
       const prompt = `你是一个专业的电视广播频道元数据补全助手。
 我提供了一个频道名称（可能还有当前的元数据），请你根据你的知识库，补全缺失的电台相关信息。
 
@@ -2567,27 +2680,20 @@ ${currentData ? `当前已知信息:\n${JSON.stringify(currentData, null, 2)}` :
 
 请返回尽可能详细和准确的信息。如果不确定，请留空。不要生造虚假数据。`;
 
-      const response = await ai.models.generateContent({
-        model: "gemini-2.5-flash",
-        contents: prompt,
-        config: {
-          responseMimeType: "application/json",
-          responseSchema: {
-            type: Type.OBJECT,
-            properties: {
-              logo: { type: Type.STRING, description: "高质量的频道台标/Logo图片公开可用URL (PNG/SVG格式，建议使用维基百科或官方资源)" },
-              description: { type: Type.STRING, description: "该频道的简短描述 (1-2句话)" },
-              province: { type: Type.STRING, description: "该频道所属的中国省份/直辖市名称（如果适用，如 '北京', '广东'）" },
-              city: { type: Type.STRING, description: "该频道所属的城市名称（如果适用）" },
-              category: { type: Type.STRING, description: "频道的分类，如：央视、卫视、地方台、综合、新闻、少儿、体育、电影" },
-              alias: { type: Type.ARRAY, items: { type: Type.STRING }, description: "该频道的其他常见别名或曾用名" },
-              frequency: { type: Type.STRING, description: "该频道的FM频段或其他频率信息（适用于广播电台），如未提供请留空" }
-            }
-          }
+      const schema = {
+        type: Type.OBJECT,
+        properties: {
+          logo: { type: Type.STRING, description: "高质量的频道台标/Logo图片公开可用URL (PNG/SVG格式，建议使用维基百科或官方资源)" },
+          description: { type: Type.STRING, description: "该频道的简短描述 (1-2句话)" },
+          province: { type: Type.STRING, description: "该频道所属的中国省份/直辖市名称（如果适用，如 '北京', '广东'）" },
+          city: { type: Type.STRING, description: "该频道所属的城市名称（如果适用）" },
+          category: { type: Type.STRING, description: "频道的分类，如：央视、卫视、地方台、综合、新闻、少儿、体育、电影" },
+          alias: { type: Type.ARRAY, items: { type: Type.STRING }, description: "该频道的其他常见别名或曾用名" },
+          frequency: { type: Type.STRING, description: "该频道的FM频段或其他频率信息（适用于广播电台），如未提供请留空" }
         }
-      });
+      };
 
-      const result = response.text;
+      const result = await generateAIContent(prompt, schema, "gemini-2.5-flash", "gpt-4o-mini");
       if (!result) throw new Error("AI 返回了空结果");
 
       const parsedResult = JSON.parse(result);
@@ -4238,8 +4344,7 @@ ${currentData ? `当前已知信息:\n${JSON.stringify(currentData, null, 2)}` :
         .slice(0, 100)
         .map(x => x.candidate);
 
-      // 3. Get Gemini Client and generate content
-      const ai = getGeminiClient();
+      // 3. Get AI generate content
 
       const prompt = `你是一个智能Radio电台频道匹配专家。
 我们正在为用户导入的频道：【${targetName}】匹配最合适的 EPG (电子节目单) ID。
@@ -4265,28 +4370,21 @@ ${JSON.stringify(scoredList.map(c => ({ epgId: c.epgId, names: c.displayNames, s
   }
 ]`;
 
-      const geminiRes = await ai.models.generateContent({
-        model: "gemini-3.5-flash",
-        contents: prompt,
-        config: {
-          responseMimeType: "application/json",
-          responseSchema: {
-            type: Type.ARRAY,
-            items: {
-              type: Type.OBJECT,
-              properties: {
-                epgId: { type: Type.STRING },
-                displayName: { type: Type.STRING },
-                reason: { type: Type.STRING },
-                confidence: { type: Type.NUMBER }
-              },
-              required: ["epgId", "displayName", "reason", "confidence"]
-            }
-          }
+      const schema = {
+        type: Type.ARRAY,
+        items: {
+          type: Type.OBJECT,
+          properties: {
+            epgId: { type: Type.STRING },
+            displayName: { type: Type.STRING },
+            reason: { type: Type.STRING },
+            confidence: { type: Type.NUMBER }
+          },
+          required: ["epgId", "displayName", "reason", "confidence"]
         }
-      });
+      };
 
-      const responseText = geminiRes.text;
+      const responseText = await generateAIContent(prompt, schema, "gemini-2.5-flash", "gpt-4o");
       if (!responseText) {
         throw new Error("模型未返回任何结果");
       }

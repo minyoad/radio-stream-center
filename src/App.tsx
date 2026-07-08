@@ -59,6 +59,19 @@ export default function App() {
   const [githubProxyInput, setGithubProxyInput] = useState("");
   const [geminiApiKey, setGeminiApiKey] = useState("");
   const [geminiApiKeyInput, setGeminiApiKeyInput] = useState("");
+  
+  const [aiProvider, setAiProvider] = useState("gemini");
+  const [openaiApiKey, setOpenaiApiKey] = useState("");
+  const [openaiApiKeyInput, setOpenaiApiKeyInput] = useState("");
+  const [openaiBaseUrl, setOpenaiBaseUrl] = useState("");
+  const [openaiBaseUrlInput, setOpenaiBaseUrlInput] = useState("");
+  const [openaiModel, setOpenaiModel] = useState("");
+  const [openaiModelInput, setOpenaiModelInput] = useState("");
+  
+  const [openrouterApiKey, setOpenrouterApiKey] = useState("");
+  const [openrouterApiKeyInput, setOpenrouterApiKeyInput] = useState("");
+  const [openrouterModel, setOpenrouterModel] = useState("");
+  const [openrouterModelInput, setOpenrouterModelInput] = useState("");
   const [autoCreateChannel, setAutoCreateChannel] = useState(true);
   const [isBatchSyncing, setIsBatchSyncing] = useState(false);
   const [isSavingProxy, setIsSavingProxy] = useState(false);
@@ -536,6 +549,20 @@ export default function App() {
         setGithubProxyInput(settingsData.githubProxy || "");
         setGeminiApiKey(settingsData.geminiApiKey || "");
         setGeminiApiKeyInput(settingsData.geminiApiKey || "");
+        
+        setAiProvider(settingsData.aiProvider || "gemini");
+        setOpenaiApiKey(settingsData.openaiApiKey || "");
+        setOpenaiApiKeyInput(settingsData.openaiApiKey || "");
+        setOpenaiBaseUrl(settingsData.openaiBaseUrl || "");
+        setOpenaiBaseUrlInput(settingsData.openaiBaseUrl || "");
+        setOpenaiModel(settingsData.openaiModel || "");
+        setOpenaiModelInput(settingsData.openaiModel || "");
+        
+        setOpenrouterApiKey(settingsData.openrouterApiKey || "");
+        setOpenrouterApiKeyInput(settingsData.openrouterApiKey || "");
+        setOpenrouterModel(settingsData.openrouterModel || "");
+        setOpenrouterModelInput(settingsData.openrouterModel || "");
+        
         setAutoCreateChannel(settingsData.autoCreateChannel !== false);
       }
       await fetchEpgSourcesInternal();
@@ -744,25 +771,47 @@ export default function App() {
     }
   };
 
-  const saveGeminiApiKey = async () => {
+  const saveAiSettings = async () => {
     try {
       const res = await fetch("/api/settings", {
         method: "POST",
         headers: {
           "Content-Type": "application/json"
         },
-        body: JSON.stringify({ geminiApiKey: geminiApiKeyInput })
+        body: JSON.stringify({ 
+          aiProvider,
+          geminiApiKey: geminiApiKeyInput,
+          openaiApiKey: openaiApiKeyInput,
+          openaiBaseUrl: openaiBaseUrlInput,
+          openaiModel: openaiModelInput,
+          openrouterApiKey: openrouterApiKeyInput,
+          openrouterModel: openrouterModelInput
+        })
       });
       if (res.ok) {
         const data = await res.json();
         setGeminiApiKey(data.geminiApiKey || "");
         setGeminiApiKeyInput(data.geminiApiKey || "");
-        showFeedback("success", "Gemini API Key 已成功保存！");
+        
+        setAiProvider(data.aiProvider || "gemini");
+        setOpenaiApiKey(data.openaiApiKey || "");
+        setOpenaiApiKeyInput(data.openaiApiKey || "");
+        setOpenaiBaseUrl(data.openaiBaseUrl || "");
+        setOpenaiBaseUrlInput(data.openaiBaseUrl || "");
+        setOpenaiModel(data.openaiModel || "");
+        setOpenaiModelInput(data.openaiModel || "");
+        
+        setOpenrouterApiKey(data.openrouterApiKey || "");
+        setOpenrouterApiKeyInput(data.openrouterApiKey || "");
+        setOpenrouterModel(data.openrouterModel || "");
+        setOpenrouterModelInput(data.openrouterModel || "");
+        
+        showFeedback("success", "AI 接口配置已成功保存！");
       } else {
-        showFeedback("error", "保存 Gemini API Key 失败");
+        showFeedback("error", "保存 AI 配置失败");
       }
     } catch (e) {
-      showFeedback("error", "网络请求异常，保存 API Key 失败");
+      showFeedback("error", "网络请求异常，保存 AI 配置失败");
     }
   };
 
@@ -3823,68 +3872,127 @@ export default function App() {
                 </div>
               </div>
 
-              {/* Gemini API Key Settings Card */}
-              <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm space-y-4" id="gemini_api_settings_card">
+              {/* AI Provider Settings Card */}
+              <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm space-y-4" id="ai_settings_card">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-3">
                     <div className="p-2 bg-indigo-50 text-indigo-600 rounded-xl">
                       <Settings className="w-5 h-5 animate-spin-hover" />
                     </div>
                     <div>
-                      <h3 className="font-bold text-slate-800 text-sm">Gemini API Key 配置</h3>
-                      <p className="text-xs text-slate-400 mt-0.5">配置您的 Google Gemini API Key 以解锁 AI 智能补全和推荐功能</p>
+                      <h3 className="font-bold text-slate-800 text-sm">AI 智能接口配置</h3>
+                      <p className="text-xs text-slate-400 mt-0.5">选择并配置 AI 服务以解锁智能补全、EPG 自动匹配等功能</p>
                     </div>
                   </div>
                 </div>
 
-                <div className="flex flex-col sm:flex-row gap-3 items-center">
-                  <div className="relative flex-1 w-full">
-                    <input
-                      type="password"
-                      value={geminiApiKeyInput}
-                      onChange={(e) => setGeminiApiKeyInput(e.target.value)}
-                      placeholder="AIzaSy..."
-                      className="w-full pl-4 pr-24 py-2.5 border border-slate-200 rounded-xl text-xs focus:outline-none focus:ring-1 focus:ring-indigo-500 focus:border-indigo-500 bg-slate-50 text-slate-700 placeholder-slate-400 font-mono"
-                    />
-                    {geminiApiKey && (
-                      <div className="absolute right-3 top-2.5 flex items-center text-emerald-600 gap-1" title="已配置">
-                        <Check className="w-4 h-4 stroke-[3]" />
-                        <span className="text-[10px] font-bold">已配置</span>
-                      </div>
-                    )}
+                <div className="space-y-4">
+                  <div>
+                    <label className="text-xs font-bold text-slate-700 mb-1.5 block">选择 AI 服务商</label>
+                    <div className="flex flex-wrap gap-2">
+                      {[
+                        { id: 'gemini', name: 'Google Gemini' },
+                        { id: 'openai', name: 'OpenAI' },
+                        { id: 'openrouter', name: 'OpenRouter' }
+                      ].map(provider => (
+                        <button
+                          key={provider.id}
+                          onClick={() => setAiProvider(provider.id)}
+                          className={`px-4 py-2 rounded-xl text-xs font-bold transition-colors ${aiProvider === provider.id ? 'bg-indigo-600 text-white shadow-sm' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}
+                        >
+                          {provider.name}
+                        </button>
+                      ))}
+                    </div>
                   </div>
-                  <button
-                    onClick={saveGeminiApiKey}
-                    className="w-full sm:w-auto px-6 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs rounded-xl shadow transition duration-150 cursor-pointer text-center flex-shrink-0"
-                  >
-                    保存 API Key
-                  </button>
-                  {geminiApiKey && (
-                    <button
-                      onClick={async () => {
-                        try {
-                          const res = await fetch("/api/settings", {
-                            method: "POST",
-                            headers: { "Content-Type": "application/json" },
-                            body: JSON.stringify({ geminiApiKey: "" })
-                          });
-                          if (res.ok) {
-                            setGeminiApiKey("");
-                            setGeminiApiKeyInput("");
-                            showFeedback("success", "API Key 已成功清除");
-                          }
-                        } catch (err) {
-                          showFeedback("error", "清除失败");
-                        }
-                      }}
-                      className="w-full sm:w-auto px-4 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-600 font-bold text-xs rounded-xl transition cursor-pointer text-center flex-shrink-0"
-                    >
-                      清空
-                    </button>
+
+                  {aiProvider === 'gemini' && (
+                    <div className="space-y-3 animate-fade-in p-4 bg-slate-50 rounded-xl border border-slate-100">
+                      <div>
+                        <label className="text-[11px] font-bold text-slate-700 block mb-1">API Key</label>
+                        <input
+                          type="password"
+                          value={geminiApiKeyInput}
+                          onChange={(e) => setGeminiApiKeyInput(e.target.value)}
+                          placeholder="AIzaSy..."
+                          className="w-full px-3 py-2 border border-slate-200 rounded-lg text-xs focus:outline-none focus:ring-1 focus:ring-indigo-500 font-mono bg-white"
+                        />
+                      </div>
+                    </div>
                   )}
-                </div>
-                <div className="text-[11px] text-slate-400">
-                  💡 注意：此 Key 将用于 AI 一键补全频道信息、推荐 EPG 对应项。如果您部署在公开环境，请妥善保管。留空则无法使用 AI 相关功能。系统环境变量 <code>GEMINI_API_KEY</code> 也是生效的。
+
+                  {aiProvider === 'openai' && (
+                    <div className="space-y-3 animate-fade-in p-4 bg-slate-50 rounded-xl border border-slate-100">
+                      <div>
+                        <label className="text-[11px] font-bold text-slate-700 block mb-1">API Key</label>
+                        <input
+                          type="password"
+                          value={openaiApiKeyInput}
+                          onChange={(e) => setOpenaiApiKeyInput(e.target.value)}
+                          placeholder="sk-..."
+                          className="w-full px-3 py-2 border border-slate-200 rounded-lg text-xs focus:outline-none focus:ring-1 focus:ring-indigo-500 font-mono bg-white"
+                        />
+                      </div>
+                      <div>
+                        <label className="text-[11px] font-bold text-slate-700 block mb-1">Base URL (可选)</label>
+                        <input
+                          type="text"
+                          value={openaiBaseUrlInput}
+                          onChange={(e) => setOpenaiBaseUrlInput(e.target.value)}
+                          placeholder="例如: https://api.openai.com/v1"
+                          className="w-full px-3 py-2 border border-slate-200 rounded-lg text-xs focus:outline-none focus:ring-1 focus:ring-indigo-500 font-mono bg-white"
+                        />
+                      </div>
+                      <div>
+                        <label className="text-[11px] font-bold text-slate-700 block mb-1">模型名称 (默认 gpt-4o-mini)</label>
+                        <input
+                          type="text"
+                          value={openaiModelInput}
+                          onChange={(e) => setOpenaiModelInput(e.target.value)}
+                          placeholder="gpt-4o-mini"
+                          className="w-full px-3 py-2 border border-slate-200 rounded-lg text-xs focus:outline-none focus:ring-1 focus:ring-indigo-500 font-mono bg-white"
+                        />
+                      </div>
+                    </div>
+                  )}
+
+                  {aiProvider === 'openrouter' && (
+                    <div className="space-y-3 animate-fade-in p-4 bg-slate-50 rounded-xl border border-slate-100">
+                      <div>
+                        <label className="text-[11px] font-bold text-slate-700 block mb-1">API Key</label>
+                        <input
+                          type="password"
+                          value={openrouterApiKeyInput}
+                          onChange={(e) => setOpenrouterApiKeyInput(e.target.value)}
+                          placeholder="sk-or-v1-..."
+                          className="w-full px-3 py-2 border border-slate-200 rounded-lg text-xs focus:outline-none focus:ring-1 focus:ring-indigo-500 font-mono bg-white"
+                        />
+                      </div>
+                      <div>
+                        <label className="text-[11px] font-bold text-slate-700 block mb-1">模型名称 (默认 openai/gpt-4o-mini)</label>
+                        <input
+                          type="text"
+                          value={openrouterModelInput}
+                          onChange={(e) => setOpenrouterModelInput(e.target.value)}
+                          placeholder="openai/gpt-4o-mini"
+                          className="w-full px-3 py-2 border border-slate-200 rounded-lg text-xs focus:outline-none focus:ring-1 focus:ring-indigo-500 font-mono bg-white"
+                        />
+                      </div>
+                    </div>
+                  )}
+
+                  <div className="flex gap-2 justify-end">
+                    <button
+                      onClick={saveAiSettings}
+                      className="px-6 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs rounded-xl shadow transition duration-150 cursor-pointer text-center"
+                    >
+                      保存 AI 配置
+                    </button>
+                  </div>
+                  
+                  <div className="text-[11px] text-slate-400 mt-2">
+                    💡 提示：留空则无法使用 AI 相关功能。系统环境变量 <code>GEMINI_API_KEY</code> 对 Gemini 始终生效。
+                  </div>
                 </div>
               </div>
 
