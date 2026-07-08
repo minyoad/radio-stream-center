@@ -278,18 +278,25 @@ function initSqlite() {
     db.exec("ALTER TABLE channels ADD COLUMN sortOrder INTEGER DEFAULT 0");
   }
 
-  // Migration: Add frequency to channels table if it doesn't exist
-  try {
-    db.prepare("SELECT frequency FROM channels LIMIT 1").get();
-  } catch (err) {
-    db.exec("ALTER TABLE channels ADD COLUMN frequency TEXT");
-  }
-
-  // Migration: Add gain to channels table if it doesn't exist
-  try {
-    db.prepare("SELECT gain FROM channels LIMIT 1").get();
-  } catch (err) {
-    db.exec("ALTER TABLE channels ADD COLUMN gain REAL DEFAULT 1");
+  // Migration: Add description, province, city, category, frequency, gain to channels table if they don't exist
+  const newCols = [
+    { name: 'description', def: 'TEXT' },
+    { name: 'province', def: 'TEXT' },
+    { name: 'city', def: 'TEXT' },
+    { name: 'category', def: 'TEXT' },
+    { name: 'frequency', def: 'TEXT' },
+    { name: 'gain', def: 'REAL DEFAULT 1' }
+  ];
+  for (const col of newCols) {
+    try {
+      db.prepare(`SELECT ${col.name} FROM channels LIMIT 1`).get();
+    } catch (err) {
+      try {
+        db.exec(`ALTER TABLE channels ADD COLUMN ${col.name} ${col.def}`);
+      } catch (e: any) {
+        console.error(`[Migration Error] failed to add column ${col.name}:`, e.message);
+      }
+    }
   }
 
   // Seed default cron jobs
