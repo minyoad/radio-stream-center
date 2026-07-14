@@ -60,7 +60,7 @@ export default function App() {
   const [geminiApiKey, setGeminiApiKey] = useState("");
   const [geminiApiKeyInput, setGeminiApiKeyInput] = useState("");
   
-  const [aiProvider, setAiProvider] = useState("gemini");
+  const [aiProvider, setAiProvider] = useState("openrouter");
   const [openaiApiKey, setOpenaiApiKey] = useState("");
   const [openaiApiKeyInput, setOpenaiApiKeyInput] = useState("");
   const [openaiBaseUrl, setOpenaiBaseUrl] = useState("");
@@ -70,8 +70,8 @@ export default function App() {
   
   const [openrouterApiKey, setOpenrouterApiKey] = useState("");
   const [openrouterApiKeyInput, setOpenrouterApiKeyInput] = useState("");
-  const [openrouterModel, setOpenrouterModel] = useState("");
-  const [openrouterModelInput, setOpenrouterModelInput] = useState("");
+  const [openrouterModel, setOpenrouterModel] = useState("google/gemini-2.5-flash:free");
+  const [openrouterModelInput, setOpenrouterModelInput] = useState("google/gemini-2.5-flash:free");
   const [autoCreateChannel, setAutoCreateChannel] = useState(true);
   const [isBatchSyncing, setIsBatchSyncing] = useState(false);
   const [isSavingProxy, setIsSavingProxy] = useState(false);
@@ -550,7 +550,7 @@ export default function App() {
         setGeminiApiKey(settingsData.geminiApiKey || "");
         setGeminiApiKeyInput(settingsData.geminiApiKey || "");
         
-        setAiProvider(settingsData.aiProvider || "gemini");
+        setAiProvider(settingsData.aiProvider || "openrouter");
         setOpenaiApiKey(settingsData.openaiApiKey || "");
         setOpenaiApiKeyInput(settingsData.openaiApiKey || "");
         setOpenaiBaseUrl(settingsData.openaiBaseUrl || "");
@@ -560,8 +560,8 @@ export default function App() {
         
         setOpenrouterApiKey(settingsData.openrouterApiKey || "");
         setOpenrouterApiKeyInput(settingsData.openrouterApiKey || "");
-        setOpenrouterModel(settingsData.openrouterModel || "");
-        setOpenrouterModelInput(settingsData.openrouterModel || "");
+        setOpenrouterModel(settingsData.openrouterModel || "google/gemini-2.5-flash:free");
+        setOpenrouterModelInput(settingsData.openrouterModel || "google/gemini-2.5-flash:free");
         
         setAutoCreateChannel(settingsData.autoCreateChannel !== false);
       }
@@ -793,7 +793,7 @@ export default function App() {
         setGeminiApiKey(data.geminiApiKey || "");
         setGeminiApiKeyInput(data.geminiApiKey || "");
         
-        setAiProvider(data.aiProvider || "gemini");
+        setAiProvider(data.aiProvider || "openrouter");
         setOpenaiApiKey(data.openaiApiKey || "");
         setOpenaiApiKeyInput(data.openaiApiKey || "");
         setOpenaiBaseUrl(data.openaiBaseUrl || "");
@@ -803,8 +803,8 @@ export default function App() {
         
         setOpenrouterApiKey(data.openrouterApiKey || "");
         setOpenrouterApiKeyInput(data.openrouterApiKey || "");
-        setOpenrouterModel(data.openrouterModel || "");
-        setOpenrouterModelInput(data.openrouterModel || "");
+        setOpenrouterModel(data.openrouterModel || "google/gemini-2.5-flash:free");
+        setOpenrouterModelInput(data.openrouterModel || "google/gemini-2.5-flash:free");
         
         showFeedback("success", "AI 接口配置已成功保存！");
       } else {
@@ -2371,19 +2371,6 @@ export default function App() {
           </div>
         </div>
 
-        {/* Sidebar Footer Copyable Endpoint info */}
-        <div className="p-4 border-t border-slate-100">
-          <div className="bg-slate-900 rounded-2xl p-4 text-white">
-            <p className="text-[10px] text-slate-400 mb-1 font-mono uppercase tracking-wider">标准 M3U 播放源 URL</p>
-            <p className="text-xs font-mono truncate text-blue-300">{getFullHostUrl()}/api/export/m3u</p>
-            <button 
-              onClick={() => copyTextToClipboard(`${getFullHostUrl()}/api/export/m3u`)}
-              className="mt-3 w-full py-1.5 bg-slate-800 hover:bg-slate-700 text-[10px] font-bold tracking-wide rounded-lg scroll-px-1.5 transition-colors cursor-pointer text-slate-200"
-            >
-              一键复制源链接
-            </button>
-          </div>
-        </div>
       </aside>
 
       {/* Main Content Pane */}
@@ -3969,12 +3956,12 @@ export default function App() {
                         />
                       </div>
                       <div>
-                        <label className="text-[11px] font-bold text-slate-700 block mb-1">模型名称 (默认 openai/gpt-4o-mini)</label>
+                        <label className="text-[11px] font-bold text-slate-700 block mb-1">模型名称 (默认 google/gemini-2.5-flash:free)</label>
                         <input
                           type="text"
                           value={openrouterModelInput}
                           onChange={(e) => setOpenrouterModelInput(e.target.value)}
-                          placeholder="openai/gpt-4o-mini"
+                          placeholder="google/gemini-2.5-flash:free"
                           className="w-full px-3 py-2 border border-slate-200 rounded-lg text-xs focus:outline-none focus:ring-1 focus:ring-indigo-500 font-mono bg-white"
                         />
                       </div>

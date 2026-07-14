@@ -102,12 +102,12 @@ let epgSources: EpgSource[] = [];
 let adminPassword = process.env.ADMIN_PASSWORD || "";
 let githubProxy = "";
 let geminiApiKey = "";
-let aiProvider = "gemini";
+let aiProvider = "openrouter";
 let openaiApiKey = "";
 let openaiBaseUrl = "";
 let openaiModel = "";
 let openrouterApiKey = "";
-let openrouterModel = "";
+let openrouterModel = "google/gemini-2.5-flash:free";
 let autoCreateChannel = true;
 
 const SQLITE_DB_PATH = path.join(DATA_DIR, "radio_sqlite.db");
