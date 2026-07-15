@@ -1205,6 +1205,8 @@ function getGeminiClient(): GoogleGenAI {
   return geminiClient;
 }
 
+import { HttpsProxyAgent } from "https-proxy-agent";
+
 let openaiClient: OpenAI | null = null;
 let currentOpenAiState = "";
 
@@ -1212,9 +1214,13 @@ function getOpenAiClient(baseUrl: string, apiKey: string): OpenAI {
   const stateKey = baseUrl + ":" + apiKey;
   if (!openaiClient || currentOpenAiState !== stateKey) {
     currentOpenAiState = stateKey;
+    
+    const proxyUrl = process.env.HTTPS_PROXY || process.env.HTTP_PROXY;
+    
     openaiClient = new OpenAI({
       baseURL: baseUrl || undefined,
       apiKey: apiKey,
+      httpAgent: proxyUrl ? new HttpsProxyAgent(proxyUrl) : undefined,
     });
   }
   return openaiClient;
