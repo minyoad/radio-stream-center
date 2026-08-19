@@ -4427,6 +4427,9 @@ ${JSON.stringify(scoredList.map(c => ({ epgId: c.epgId, names: c.displayNames, s
   app.get("/api/export/m3u", async (req, res) => {
     const { category, status, limit } = req.query;
     
+    // Default status filter to 'active' if not provided or empty. Pass 'all' for all sources.
+    const targetStatus = (status !== undefined && String(status).trim() !== "") ? String(status) : "active";
+    
     const playlistRows: string[] = ["#EXTM3U"];
     const maxLimit = limit ? parseInt(String(limit)) : 10;
 
@@ -4448,7 +4451,7 @@ ${JSON.stringify(scoredList.map(c => ({ epgId: c.epgId, names: c.displayNames, s
         let count = 0;
         processedSources.forEach((source) => {
           if (count >= maxLimit) return;
-          if (status && source.status !== String(status)) return;
+          if (targetStatus !== "all" && source.status !== targetStatus) return;
           
           const suffix = "";
           const channelDisplayName = `${channel.name}${suffix}`;
@@ -4469,6 +4472,9 @@ ${JSON.stringify(scoredList.map(c => ({ epgId: c.epgId, names: c.displayNames, s
   app.get("/api/export/txt", async (req, res) => {
     const { category, status, limit } = req.query;
     
+    // Default status filter to 'active' if not provided or empty. Pass 'all' for all sources.
+    const targetStatus = (status !== undefined && String(status).trim() !== "") ? String(status) : "active";
+
     const maxLimit = limit ? parseInt(String(limit)) : 10;
     const exportMap = new Map<string, string[]>();
 
@@ -4490,7 +4496,7 @@ ${JSON.stringify(scoredList.map(c => ({ epgId: c.epgId, names: c.displayNames, s
         let count = 0;
         processedSources.forEach((source) => {
           if (count >= maxLimit) return;
-          if (status && source.status !== String(status)) return;
+          if (targetStatus !== "all" && source.status !== targetStatus) return;
           
           const catName = groupName;
           if (!exportMap.has(catName)) {

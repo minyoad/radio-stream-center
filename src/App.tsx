@@ -29,6 +29,7 @@ import {
   Shield,
   Menu,
   X,
+  Sliders,
   GitMerge
 } from "lucide-react";
 import { Channel, LiveSource, SyncConfig, TestStatus, EpgGuide, Tag, EpgSource } from "./types";
@@ -314,7 +315,7 @@ export default function App() {
 
   // Playback Export config builder parameters
   const [exportParams, setExportParams] = useState({
-    status: "",
+    status: "active",
     limit: "",
   });
 
@@ -4312,13 +4313,64 @@ export default function App() {
 
               {/* API settings dynamic builder */}
               <div className="bg-white p-6 rounded-2xl border border-slate-200 flex flex-col justify-between" id="api_endpoints_list_card">
-                  <div className="space-y-4">
+                  <div className="space-y-6">
+                    {/* Export filter customization controls */}
+                    <div className="bg-slate-50/80 p-4 rounded-xl border border-slate-100 space-y-3">
+                      <div className="flex items-center justify-between">
+                        <h4 className="font-bold text-slate-800 text-xs flex items-center gap-1.5">
+                          <Sliders className="w-3.5 h-3.5 text-indigo-600" />
+                          导出筛选参数配置
+                        </h4>
+                        <span className="text-[10px] text-slate-400">设置后下方链接将自动更新</span>
+                      </div>
+                      
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
+                        <div>
+                          <label className="block text-[11px] font-medium text-slate-600 mb-1">
+                            线路可用性状态筛选
+                          </label>
+                          <select
+                            value={exportParams.status}
+                            onChange={(e) => setExportParams({ ...exportParams, status: e.target.value })}
+                            className="w-full text-xs p-2 bg-white border border-slate-200 rounded-lg focus:border-indigo-500 focus:outline-none text-slate-800"
+                          >
+                            <option value="active">仅包含可用线路 (active - 默认)</option>
+                            <option value="all">包含全部线路 (包含失效与未测试)</option>
+                            <option value="unknown">仅包含未测试线路 (unknown)</option>
+                            <option value="inactive">仅包含失效线路 (inactive)</option>
+                          </select>
+                        </div>
+                        
+                        <div>
+                          <label className="block text-[11px] font-medium text-slate-600 mb-1">
+                            单频道最多导出线路数限制
+                          </label>
+                          <input
+                            type="number"
+                            min="1"
+                            max="50"
+                            placeholder="留空则不限制 (默认全部可用)"
+                            value={exportParams.limit}
+                            onChange={(e) => setExportParams({ ...exportParams, limit: e.target.value })}
+                            className="w-full text-xs p-2 bg-white border border-slate-200 rounded-lg focus:border-indigo-500 focus:outline-none text-slate-800 placeholder-slate-400"
+                          />
+                        </div>
+                      </div>
+                    </div>
+
                     <h3 className="font-bold text-slate-800 text-sm">生成的专属播放和 EPG 链路</h3>
                     
                     {/* Live active dynamic preview params */}
                     {Object.values(exportParams).some(Boolean) && (
-                      <div className="bg-amber-50/40 p-3 rounded-lg border border-amber-100 text-[10px] text-amber-900 leading-none">
-                        当前已应用过滤条件: {false && `[运营商:${false}]`} {exportParams.status && `[高可用:${exportParams.status}]`}  {exportParams.limit && `[数量限制:${exportParams.limit}]`}
+                      <div className="bg-emerald-50/60 p-2.5 rounded-lg border border-emerald-100 text-[10px] text-emerald-800 flex items-center gap-2">
+                        <span className="font-bold shrink-0">当前过滤模式:</span>
+                        <span>
+                          {exportParams.status === "active" ? "🟢 仅高可用线路 (默认)" :
+                           exportParams.status === "all" ? "🌐 包含全部线路" :
+                           exportParams.status === "inactive" ? "🔴 仅失效线路" :
+                           exportParams.status === "unknown" ? "⚪ 仅未测试线路" : "🟢 仅高可用线路"}
+                          {exportParams.limit ? ` | 最多 ${exportParams.limit} 条/频道` : ""}
+                        </span>
                       </div>
                     )}
 
