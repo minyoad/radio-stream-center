@@ -2216,14 +2216,14 @@ export default function App() {
       {/* Mobile Overlay */}
       {isMobileMenuOpen && (
         <div 
-          className="fixed inset-0 z-30 bg-slate-900/50 backdrop-blur-sm md:hidden"
+          className="fixed inset-0 z-30 bg-slate-900/60 backdrop-blur-md md:hidden transition-opacity"
           onClick={() => setIsMobileMenuOpen(false)}
         />
       )}
       {/* Primary Sidebar - Styled around Clean Minimalism pattern */}
-      <aside className={`fixed inset-y-0 left-0 z-40 transform ${isMobileMenuOpen ? "translate-x-0" : "-translate-x-full"} md:relative md:translate-x-0 transition-transform duration-300 ease-in-out w-64 bg-white border-r border-slate-200 flex flex-col flex-shrink-0`} id="premium_sidebar">
+      <aside className={`fixed inset-y-0 left-0 z-40 transform ${isMobileMenuOpen ? "translate-x-0" : "-translate-x-full"} md:relative md:translate-x-0 transition-transform duration-300 ease-in-out w-72 md:w-64 bg-white border-r border-slate-200 flex flex-col flex-shrink-0 shadow-xl md:shadow-none pt-safe pb-safe`} id="premium_sidebar">
         {/* Brand Header */}
-        <div className="p-6 border-b border-slate-100">
+        <div className="p-5 md:p-6 border-b border-slate-100 flex items-center justify-between">
           <div className="flex items-center gap-3">
             <div className="w-9 h-9 bg-blue-600 rounded-xl flex items-center justify-center text-white shadow-sm shadow-blue-500/20">
               <Radio className="w-5 h-5" />
@@ -2233,13 +2233,20 @@ export default function App() {
               <span className="text-[10px] text-slate-400 font-medium">直播与源管理终端</span>
             </div>
           </div>
+          <button 
+            className="md:hidden p-2 text-slate-400 hover:text-slate-600 rounded-xl hover:bg-slate-100 transition-colors active:scale-90 shrink-0"
+            onClick={() => setIsMobileMenuOpen(false)}
+            aria-label="关闭侧边栏"
+          >
+            <X className="w-5 h-5" />
+          </button>
         </div>
 
         {/* Unified Nav Menu */}
-        <div className="flex-1 p-4 space-y-1.5 overflow-y-auto">
+        <div className="flex-1 p-4 space-y-1.5 overflow-y-auto smooth-scroll">
           <button 
             onClick={() => { setActiveTab("dashboard"); setIsMobileMenuOpen(false); }}
-            className={`w-full flex items-center gap-3.5 px-4 py-3 rounded-xl transition text-xs font-semibold ${
+            className={`w-full flex items-center gap-3.5 px-4 py-3 rounded-xl transition text-xs font-semibold active:scale-[0.98] ${
               activeTab === "dashboard" 
               ? "bg-blue-50/75 text-blue-700 font-bold" 
               : "text-slate-500 hover:bg-slate-50 hover:text-slate-800"
@@ -2252,7 +2259,7 @@ export default function App() {
 
           <button 
             onClick={() => { setActiveTab("channels"); setIsMobileMenuOpen(false); }}
-            className={`w-full flex items-center gap-3.5 px-4 py-3 rounded-xl transition text-xs font-semibold ${
+            className={`w-full flex items-center gap-3.5 px-4 py-3 rounded-xl transition text-xs font-semibold active:scale-[0.98] ${
               activeTab === "channels" 
               ? "bg-blue-50/75 text-blue-700 font-bold" 
               : "text-slate-500 hover:bg-slate-50 hover:text-slate-800"
@@ -2265,7 +2272,7 @@ export default function App() {
 
           <button 
             onClick={() => { setActiveTab("sync"); setIsMobileMenuOpen(false); }}
-            className={`w-full flex items-center gap-3.5 px-4 py-3 rounded-xl transition text-xs font-semibold ${
+            className={`w-full flex items-center gap-3.5 px-4 py-3 rounded-xl transition text-xs font-semibold active:scale-[0.98] ${
               activeTab === "sync" 
               ? "bg-blue-50/75 text-blue-700 font-bold" 
               : "text-slate-500 hover:bg-slate-50 hover:text-slate-800"
@@ -2278,7 +2285,7 @@ export default function App() {
 
           <button 
             onClick={() => { setActiveTab("export"); setIsMobileMenuOpen(false); }}
-            className={`w-full flex items-center gap-3.5 px-4 py-3 rounded-xl transition text-xs font-semibold ${
+            className={`w-full flex items-center gap-3.5 px-4 py-3 rounded-xl transition text-xs font-semibold active:scale-[0.98] ${
               activeTab === "export" 
               ? "bg-blue-50/75 text-blue-700 font-bold" 
               : "text-slate-500 hover:bg-slate-50 hover:text-slate-800"
@@ -2291,7 +2298,7 @@ export default function App() {
 
           <button 
             onClick={() => { setActiveTab("epg"); setIsMobileMenuOpen(false); }}
-            className={`w-full flex items-center gap-3.5 px-4 py-3 rounded-xl transition text-xs font-semibold ${
+            className={`w-full flex items-center gap-3.5 px-4 py-3 rounded-xl transition text-xs font-semibold active:scale-[0.98] ${
               activeTab === "epg" 
               ? "bg-blue-50/75 text-blue-700 font-bold" 
               : "text-slate-500 hover:bg-slate-50 hover:text-slate-800"
@@ -2304,7 +2311,7 @@ export default function App() {
           
           <button 
             onClick={() => { setActiveTab("cron"); setIsMobileMenuOpen(false); }}
-            className={`w-full flex items-center gap-3.5 px-4 py-3 rounded-xl transition text-xs font-semibold ${
+            className={`w-full flex items-center gap-3.5 px-4 py-3 rounded-xl transition text-xs font-semibold active:scale-[0.98] ${
               activeTab === "cron" 
               ? "bg-blue-50/75 text-blue-700 font-bold" 
               : "text-slate-500 hover:bg-slate-50 hover:text-slate-800"
@@ -2318,7 +2325,7 @@ export default function App() {
 
           <button 
             onClick={() => { setActiveTab("backup"); setIsMobileMenuOpen(false); }}
-            className={`w-full flex items-center gap-3.5 px-4 py-3 rounded-xl transition text-xs font-semibold ${
+            className={`w-full flex items-center gap-3.5 px-4 py-3 rounded-xl transition text-xs font-semibold active:scale-[0.98] ${
               activeTab === "backup" 
               ? "bg-blue-50/75 text-blue-700 font-bold" 
               : "text-slate-500 hover:bg-slate-50 hover:text-slate-800"
@@ -2334,7 +2341,7 @@ export default function App() {
               setPasswordForm({ oldPassword: "", newPassword: "", confirmPassword: "" });
               setIsSettingPasswordModalOpen(true);
             }}
-            className={`w-full flex items-center justify-between px-4 py-3 rounded-xl transition text-xs text-left font-semibold ${
+            className={`w-full flex items-center justify-between px-4 py-3 rounded-xl transition text-xs text-left font-semibold active:scale-[0.98] ${
               isAuthRequired 
               ? "bg-indigo-50/40 text-indigo-700 hover:bg-indigo-50 border border-indigo-100" 
               : "text-slate-500 hover:bg-slate-50 hover:text-slate-800"
@@ -2376,42 +2383,44 @@ export default function App() {
       {/* Main Content Pane */}
       <main className="flex-1 flex flex-col h-screen overflow-hidden min-w-0">
         {/* Top Header - Structured according to Clean Minimalism Design mockup */}
-        <header className="h-16 bg-white border-b border-slate-200 px-4 md:px-8 flex items-center justify-between flex-shrink-0" id="top_header">
-          <div className="flex items-center gap-3">
+        <header className="h-14 md:h-16 bg-white border-b border-slate-200 px-3.5 md:px-8 flex items-center justify-between flex-shrink-0 pt-safe" id="top_header">
+          <div className="flex items-center gap-2.5 min-w-0">
             <button
-              className="md:hidden p-2 text-slate-500 hover:bg-slate-100 rounded-lg transition-colors"
+              className="md:hidden p-2 text-slate-500 hover:bg-slate-100 rounded-xl transition-colors active:scale-95 shrink-0"
               onClick={() => setIsMobileMenuOpen(true)}
+              aria-label="打开侧边栏菜单"
             >
               <Menu className="w-5 h-5" />
             </button>
-            <h1 className="text-sm md:text-base font-bold text-slate-800 truncate">
+            <h1 className="text-xs sm:text-sm md:text-base font-bold text-slate-800 truncate">
               {activeTab === "dashboard" && "数据概览 (Overview)"}
               {activeTab === "channels" && "频道列表与线路维护中心"}
-              {activeTab === "sync" && "M3U / TXT 网络同步订阅与自定义文件导入"}
+              {activeTab === "sync" && "M3U / TXT 网络同步订阅与文件导入"}
               {activeTab === "export" && "播放接口配置生成工具"}
-              {activeTab === "epg" && "EPG XML 国际电台频道节目单同步与多源整合合并中心"}
-              {activeTab === "backup" && "数据备份与系统完整恢复"}
-              {activeTab === "cron" && "自动化定时任务管理 (EPG & 订阅源)"}
+              {activeTab === "epg" && "EPG XML 节目单同步与合并"}
+              {activeTab === "backup" && "数据备份与恢复"}
+              {activeTab === "cron" && "自动化定时任务"}
             </h1>
           </div>
           
-          <div className="flex items-center gap-4">
+          <div className="flex items-center gap-2 sm:gap-4 shrink-0">
             {/* Realtime test action banner */}
             {testingStatus.status === "running" ? (
-              <div className="flex items-center gap-3 text-xs text-amber-600 bg-amber-50/85 px-3.5 py-1.5 border border-amber-100 rounded-full font-bold">
-                <span className="w-2 h-2 bg-amber-500 rounded-full animate-ping"></span>
-                <span>正在高并发多线程检测: {testingStatus.checked} / {testingStatus.total} 线路</span>
+              <div className="flex items-center gap-2 text-[11px] sm:text-xs text-amber-600 bg-amber-50/85 px-2.5 sm:px-3.5 py-1 sm:py-1.5 border border-amber-100 rounded-full font-bold">
+                <span className="w-2 h-2 bg-amber-500 rounded-full animate-ping shrink-0"></span>
+                <span className="hidden sm:inline">正在高并发检测:</span>
+                <span>{testingStatus.checked}/{testingStatus.total}</span>
                 <button 
                   onClick={cancelTest}
-                  className="bg-rose-100 hover:bg-rose-200 text-rose-700 text-[10px] font-bold px-2 py-0.5 rounded-full transition"
+                  className="bg-rose-100 hover:bg-rose-200 text-rose-700 text-[10px] font-bold px-2 py-0.5 rounded-full transition active:scale-95"
                 >
-                  放弃测速
+                  取消
                 </button>
               </div>
             ) : (
-              <div className="flex items-center gap-2 text-xs text-slate-500 bg-slate-100/75 px-3 py-1.5 rounded-full font-semibold">
+              <div className="hidden sm:flex items-center gap-2 text-xs text-slate-500 bg-slate-100/75 px-3 py-1.5 rounded-full font-semibold">
                 <span className="w-2 h-2 bg-emerald-500 rounded-full"></span>
-                自动心跳同步: 已启用 (每分)
+                自动同步: 1分
               </div>
             )}
 
@@ -2419,20 +2428,20 @@ export default function App() {
               id="top_pulse_speed_btn"
               disabled={testingStatus.status === "running"}
               onClick={triggerConcurrentBulkTest}
-              className={`text-slate-50 px-4 py-2 rounded-xl text-xs font-bold border border-transparent shadow shadow-blue-500/10 transition leading-none flex items-center ${
+              className={`text-slate-50 px-3 sm:px-4 py-2 rounded-xl text-xs font-bold border border-transparent shadow shadow-blue-500/10 transition leading-none flex items-center active:scale-95 ${
                 testingStatus.status === "running"
                 ? "bg-slate-200 text-slate-400 cursor-not-allowed"
                 : "bg-blue-600 hover:bg-blue-700 cursor-pointer"
               }`}
             >
-              <Activity className="w-3.5 h-3.5 mr-1.5" />
-              一键并发测速
+              <Activity className="w-3.5 h-3.5 mr-1" />
+              <span className="hidden sm:inline">一键并发</span>测速
             </button>
           </div>
         </header>
 
         {/* Dynamic Content Outlet with custom vertical scrolling limits */}
-        <div className="flex-1 overflow-y-auto p-8" id="content_canvas_outer">
+        <div className="flex-1 overflow-y-auto p-3.5 sm:p-6 md:p-8 pb-28 md:pb-8 smooth-scroll" id="content_canvas_outer">
           
           {/* VIEW: DASHBOARD */}
           {activeTab === "dashboard" && (
@@ -2450,10 +2459,10 @@ export default function App() {
             <div className="space-y-6 animate-fade-in" id="tab_channels_view">
               
               {/* Inner sub-tab selection */}
-              <div className="flex flex-col sm:flex-row flex-wrap gap-2.5">
+              <div className="flex items-center gap-2 overflow-x-auto no-scrollbar pb-1 -mx-1 px-1">
                 <button
                   onClick={() => setChannelSubTab("channels")}
-                  className={`px-4 py-2 rounded-xl text-xs font-bold transition flex items-center gap-1.5 cursor-pointer ${
+                  className={`px-3.5 py-2 rounded-xl text-xs font-bold transition flex items-center gap-1.5 shrink-0 cursor-pointer active:scale-95 ${
                     channelSubTab === "channels"
                     ? "bg-slate-800 text-white shadow-md shadow-slate-900/10"
                     : "bg-white text-slate-500 hover:text-slate-800 hover:bg-slate-50 border border-slate-200"
@@ -2464,7 +2473,7 @@ export default function App() {
                 </button>
                 <button
                   onClick={() => setChannelSubTab("tags")}
-                  className={`px-4 py-2 rounded-xl text-xs font-bold transition flex items-center gap-1.5 cursor-pointer ${
+                  className={`px-3.5 py-2 rounded-xl text-xs font-bold transition flex items-center gap-1.5 shrink-0 cursor-pointer active:scale-95 ${
                     channelSubTab === "tags"
                     ? "bg-slate-800 text-white shadow-md shadow-slate-900/10"
                     : "bg-white text-slate-500 hover:text-slate-800 hover:bg-slate-50 border border-slate-200"
@@ -2475,7 +2484,7 @@ export default function App() {
                 </button>
                 <button
                   onClick={() => setChannelSubTab("sources")}
-                  className={`px-4 py-2 rounded-xl text-xs font-bold transition flex items-center gap-1.5 cursor-pointer ${
+                  className={`px-3.5 py-2 rounded-xl text-xs font-bold transition flex items-center gap-1.5 shrink-0 cursor-pointer active:scale-95 ${
                     channelSubTab === "sources"
                     ? "bg-slate-800 text-white shadow-md shadow-slate-900/10"
                     : "bg-white text-slate-500 hover:text-slate-800 hover:bg-slate-50 border border-slate-200"
@@ -5464,6 +5473,60 @@ export default function App() {
 
         </div>
       </main>
+
+      {/* iOS Bottom Navigation Bar (Mobile Only) */}
+      <nav 
+        className="fixed bottom-0 left-0 right-0 z-30 bg-white/90 backdrop-blur-xl border-t border-slate-200/80 md:hidden px-2 pt-1.5 pb-safe flex items-center justify-around shadow-lg shadow-slate-900/5 select-none"
+        id="ios_bottom_nav"
+      >
+        <button
+          onClick={() => setActiveTab("dashboard")}
+          className={`flex flex-col items-center py-1 px-3 rounded-2xl transition-all active:scale-90 cursor-pointer ${
+            activeTab === "dashboard" ? "text-blue-600 font-bold" : "text-slate-400 hover:text-slate-600"
+          }`}
+        >
+          <Activity className="w-5 h-5 mb-0.5" />
+          <span className="text-[10px] tracking-tight">概览</span>
+        </button>
+
+        <button
+          onClick={() => setActiveTab("channels")}
+          className={`flex flex-col items-center py-1 px-3 rounded-2xl transition-all active:scale-90 cursor-pointer ${
+            activeTab === "channels" ? "text-blue-600 font-bold" : "text-slate-400 hover:text-slate-600"
+          }`}
+        >
+          <Radio className="w-5 h-5 mb-0.5" />
+          <span className="text-[10px] tracking-tight">频道源</span>
+        </button>
+
+        <button
+          onClick={() => setActiveTab("sync")}
+          className={`flex flex-col items-center py-1 px-3 rounded-2xl transition-all active:scale-90 cursor-pointer ${
+            activeTab === "sync" ? "text-blue-600 font-bold" : "text-slate-400 hover:text-slate-600"
+          }`}
+        >
+          <RefreshCw className="w-5 h-5 mb-0.5" />
+          <span className="text-[10px] tracking-tight">网络订阅</span>
+        </button>
+
+        <button
+          onClick={() => setActiveTab("export")}
+          className={`flex flex-col items-center py-1 px-3 rounded-2xl transition-all active:scale-90 cursor-pointer ${
+            activeTab === "export" ? "text-blue-600 font-bold" : "text-slate-400 hover:text-slate-600"
+          }`}
+        >
+          <Download className="w-5 h-5 mb-0.5" />
+          <span className="text-[10px] tracking-tight">导出</span>
+        </button>
+
+        <button
+          onClick={() => setIsMobileMenuOpen(true)}
+          className="flex flex-col items-center py-1 px-3 rounded-2xl transition-all active:scale-90 text-slate-400 hover:text-slate-600 cursor-pointer"
+        >
+          <Menu className="w-5 h-5 mb-0.5" />
+          <span className="text-[10px] tracking-tight">菜单</span>
+        </button>
+      </nav>
 
       {/* ──────────────────────────────────────────────────────── */}
       {/* ALL INTERACTION MODAL POPUPS (CHANNELS/SOURCES/SYNCS)   */}

@@ -51,46 +51,46 @@ export default function DashboardView({
   const activeRatio = totalSources > 0 ? Math.round((activeSources / totalSources) * 100) : 0;
 
   return (
-    <div className="space-y-8 animate-fade-in" id="dashboard_view">
+    <div className="space-y-6 sm:space-y-8 animate-fade-in" id="dashboard_view">
       {/* KPI Cards Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-5" id="kpi_grid">
-        <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100 flex items-center space-x-4" id="stat_channels">
-          <div className="p-3 bg-indigo-50 text-indigo-600 rounded-xl">
-            <Radio className="w-6 h-6" />
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3 sm:gap-5" id="kpi_grid">
+        <div className="bg-white p-4 sm:p-6 rounded-2xl shadow-sm border border-slate-100 flex items-center space-x-3 sm:space-x-4" id="stat_channels">
+          <div className="p-2.5 sm:p-3 bg-indigo-50 text-indigo-600 rounded-xl shrink-0">
+            <Radio className="w-5 h-5 sm:w-6 sm:h-6" />
           </div>
-          <div>
-            <p className="text-sm font-medium text-slate-400">频道总数</p>
-            <h3 className="text-2xl font-bold text-slate-800">{totalChannels}</h3>
-          </div>
-        </div>
-
-        <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100 flex items-center space-x-4" id="stat_sources">
-          <div className="p-3 bg-cyan-50 text-cyan-600 rounded-xl">
-            <Compass className="w-6 h-6" />
-          </div>
-          <div>
-            <p className="text-sm font-medium text-slate-400">直播源线路</p>
-            <h3 className="text-2xl font-bold text-slate-800">{totalSources}</h3>
+          <div className="min-w-0">
+            <p className="text-xs sm:text-sm font-medium text-slate-400 truncate">频道总数</p>
+            <h3 className="text-xl sm:text-2xl font-bold text-slate-800">{totalChannels}</h3>
           </div>
         </div>
 
-        <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100 flex items-center space-x-4" id="stat_active_sources">
-          <div className="p-3 bg-emerald-50 text-emerald-600 rounded-xl">
-            <CheckCircle className="w-6 h-6" />
+        <div className="bg-white p-4 sm:p-6 rounded-2xl shadow-sm border border-slate-100 flex items-center space-x-3 sm:space-x-4" id="stat_sources">
+          <div className="p-2.5 sm:p-3 bg-cyan-50 text-cyan-600 rounded-xl shrink-0">
+            <Compass className="w-5 h-5 sm:w-6 sm:h-6" />
           </div>
-          <div>
-            <p className="text-sm font-medium text-slate-400">可用线路数</p>
-            <h3 className="text-2xl font-bold text-slate-800">{activeSources}</h3>
+          <div className="min-w-0">
+            <p className="text-xs sm:text-sm font-medium text-slate-400 truncate">直播源线路</p>
+            <h3 className="text-xl sm:text-2xl font-bold text-slate-800">{totalSources}</h3>
           </div>
         </div>
 
-        <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100 flex items-center space-x-4" id="stat_active_ratio">
-          <div className="p-3 bg-amber-50 text-amber-600 rounded-xl">
-            <Activity className="w-6 h-6" />
+        <div className="bg-white p-4 sm:p-6 rounded-2xl shadow-sm border border-slate-100 flex items-center space-x-3 sm:space-x-4" id="stat_active_sources">
+          <div className="p-2.5 sm:p-3 bg-emerald-50 text-emerald-600 rounded-xl shrink-0">
+            <CheckCircle className="w-5 h-5 sm:w-6 sm:h-6" />
           </div>
-          <div>
-            <p className="text-sm font-medium text-slate-400">可用性健康率</p>
-            <h3 className="text-2xl font-bold text-slate-800">{activeRatio}%</h3>
+          <div className="min-w-0">
+            <p className="text-xs sm:text-sm font-medium text-slate-400 truncate">可用线路数</p>
+            <h3 className="text-xl sm:text-2xl font-bold text-slate-800">{activeSources}</h3>
+          </div>
+        </div>
+
+        <div className="bg-white p-4 sm:p-6 rounded-2xl shadow-sm border border-slate-100 flex items-center space-x-3 sm:space-x-4" id="stat_active_ratio">
+          <div className="p-2.5 sm:p-3 bg-amber-50 text-amber-600 rounded-xl shrink-0">
+            <Activity className="w-5 h-5 sm:w-6 sm:h-6" />
+          </div>
+          <div className="min-w-0">
+            <p className="text-xs sm:text-sm font-medium text-slate-400 truncate">可用率</p>
+            <h3 className="text-xl sm:text-2xl font-bold text-slate-800">{activeRatio}%</h3>
           </div>
         </div>
       </div>

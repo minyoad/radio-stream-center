@@ -1222,7 +1222,7 @@ function getOpenAiClient(baseUrl: string, apiKey: string): OpenAI {
       baseURL: baseUrl || undefined,
       apiKey: apiKey,
       httpAgent: proxyUrl ? new HttpsProxyAgent(proxyUrl) : undefined,
-    });
+    } as any);
   }
   return openaiClient;
 }
