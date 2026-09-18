@@ -62,7 +62,9 @@ interface SyncConfig {
   disabled?: boolean;
   consecutiveFailures?: number;
   contentHash?: string;
-  }
+  description?: string;
+  category?: string;
+}
 
 interface EpgSource {
   id: string;
@@ -308,6 +310,19 @@ function initSqlite() {
     }
   }
 
+  // Migration: Add description, category to sync_configs table if they don't exist
+  try {
+    db.prepare("SELECT description FROM sync_configs LIMIT 1").get();
+  } catch (err) {
+    try {
+      db.exec("ALTER TABLE sync_configs ADD COLUMN description TEXT");
+      db.exec("ALTER TABLE sync_configs ADD COLUMN category TEXT");
+      console.log("[Migration] SQLite 'sync_configs' description & category columns added!");
+    } catch (e: any) {
+      console.error("[Migration Error] failed to add description/category to sync_configs:", e.message);
+    }
+  }
+
   // Seed default cron jobs
   const insertCronJob = db.prepare(`
     INSERT OR IGNORE INTO cron_jobs (id, name, startTime, intervalMinutes, active)
@@ -482,13 +497,70 @@ const DEFAULT_CHANNELS: Channel[] = [];
 const DEFAULT_SYNC_CONFIGS: SyncConfig[] = [
   {
     id: "sc-1",
-    name: "範例 Radio GitHub 源",
+    name: "APTV 广播电台全集 (GitHub)",
     url: "https://raw.githubusercontent.com/Kimentanm/aptv/master/m3u/radio.m3u",
     type: "m3u",
     autoSync: true,
     syncInterval: 12,
     status: "never",
-  }
+    description: "APTV 社区维护的海量国内外广播电台流媒体源集合",
+    category: "海量全集",
+  },
+  {
+    id: "sc-fanmingming",
+    name: "Fanmingming 全国广播电台 (GitHub)",
+    url: "https://raw.githubusercontent.com/fanmingming/live/main/radio/m3u/index.m3u",
+    type: "m3u",
+    autoSync: true,
+    syncInterval: 12,
+    status: "never",
+    description: "全国各省市综合广播、交通、音乐电台，自带官方高清台标与规范分类",
+    category: "全国综合 / 省市广播",
+  },
+  {
+    id: "sc-yuechan",
+    name: "YueChan 央广与省市精选电台 (GitHub)",
+    url: "https://raw.githubusercontent.com/YueChan/Live/main/Radio.m3u",
+    type: "m3u",
+    autoSync: true,
+    syncInterval: 12,
+    status: "never",
+    description: "精选中国之声、经济之声、音乐之声及各省核心电台高可用线路",
+    category: "央广 / 核心频道",
+  },
+  {
+    id: "sc-huangsuming",
+    name: "HuangSuMing 总台与地方广播 (GitHub)",
+    url: "https://raw.githubusercontent.com/huangsuming/iptv/main/list/radio.txt",
+    type: "m3u",
+    autoSync: true,
+    syncInterval: 12,
+    status: "never",
+    description: "中央人民广播电台总台频道与全国各主要省市地方广播电台汇编",
+    category: "总台 / 地方广播",
+  },
+  {
+    id: "sc-kaigecai",
+    name: "Kaige-Cai 流行音乐网络电台 (GitHub)",
+    url: "https://raw.githubusercontent.com/kaige-cai/live/main/radio.m3u",
+    type: "m3u",
+    autoSync: true,
+    syncInterval: 12,
+    status: "never",
+    description: "包含华语流行、亚洲流行、欧美潮流与经典音乐网络电台",
+    category: "流行音乐 / 网络电台",
+  },
+  {
+    id: "sc-bbc-uk",
+    name: "Free-TV 英国 BBC 广播精选 (GitHub)",
+    url: "https://raw.githubusercontent.com/Free-TV/IPTV/master/playlists/playlist_uk.m3u8",
+    type: "m3u",
+    autoSync: true,
+    syncInterval: 24,
+    status: "never",
+    description: "BBC Radio 1/2/3/4/6 Music 等 320kbps 高音质国际广播",
+    category: "国际广播 / 经典",
+  },
 ];
 
 // Load Database from disk/SQLite
@@ -579,7 +651,8 @@ function loadData() {
         disabled: sc.disabled === 1,
         consecutiveFailures: sc.consecutiveFailures || 0,
         contentHash: sc.contentHash || undefined,
-        
+        description: sc.description || undefined,
+        category: sc.category || undefined,
       }));
 
       const loadedEpgSources = db.prepare("SELECT * FROM epg_sources").all();
@@ -736,6 +809,31 @@ function loadData() {
       }
     });
 
+    // Ensure all default/recommended GitHub radio sync sources exist in syncConfigs
+    for (const defSync of DEFAULT_SYNC_CONFIGS) {
+      const existing = syncConfigs.find(
+        (sc) => sc.url === defSync.url || sc.id === defSync.id
+      );
+      if (!existing) {
+        console.log(`[SyncConfig Init] Adding missing GitHub radio source: "${defSync.name}"`);
+        syncConfigs.push({ ...defSync });
+        updated = true;
+      } else {
+        if (existing.id === "sc-1" && existing.name === "範例 Radio GitHub 源") {
+          existing.name = defSync.name;
+          updated = true;
+        }
+        if (!existing.description && defSync.description) {
+          existing.description = defSync.description;
+          updated = true;
+        }
+        if (!existing.category && defSync.category) {
+          existing.category = defSync.category;
+          updated = true;
+        }
+      }
+    }
+
     if (updated) {
       saveData();
     }
@@ -815,8 +913,8 @@ function saveData() {
       // 4. Sync sync_configs
       db.exec("DELETE FROM sync_configs");
       const insertSync = db.prepare(`
-        INSERT INTO sync_configs (id, name, url, type, autoSync, syncInterval, lastSynced, status, message, disabled, consecutiveFailures, contentHash)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO sync_configs (id, name, url, type, autoSync, syncInterval, lastSynced, status, message, disabled, consecutiveFailures, contentHash, description, category)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `);
       for (const sc of syncConfigs) {
         insertSync.run(
@@ -832,7 +930,8 @@ function saveData() {
           sc.disabled ? 1 : 0,
           sc.consecutiveFailures || 0,
           sc.contentHash || "",
-          
+          sc.description || "",
+          sc.category || ""
         );
       }
 
@@ -2688,6 +2787,97 @@ async function startServer() {
   });
 
 
+interface QtfmStation {
+  id: string;
+  name: string;
+  description: string;
+  logo: string;
+  province: string;
+  city: string;
+  category: string;
+  streamId?: string;
+}
+
+let qtfmStations: QtfmStation[] = [];
+function loadQtfmStations() {
+  try {
+    const qtfmPath = path.join(process.cwd(), "qtfm.csv");
+    if (fs.existsSync(qtfmPath)) {
+      const content = fs.readFileSync(qtfmPath, "utf-8");
+      const records = parseCSV(content, { columns: true, skip_empty_lines: true });
+      qtfmStations = records.map((r: any) => ({
+        id: r["电台ID"] || "",
+        name: (r["电台名称"] || "").trim(),
+        description: (r["电台描述"] || "").trim(),
+        logo: (r["封面图"] || "").trim(),
+        province: (r["所属省份"] || "").trim(),
+        city: (r["所属城市"] || "").trim(),
+        category: (r["所属分类"] || "").trim(),
+        streamId: (r["直播流ID"] || "").trim(),
+      })).filter((s: QtfmStation) => s.name);
+      console.log(`[QTFM] Loaded ${qtfmStations.length} radio stations from qtfm.csv`);
+    }
+  } catch (err) {
+    console.error("[QTFM] Failed to load qtfm.csv:", err);
+  }
+}
+loadQtfmStations();
+
+function findQtfmStation(name: string): QtfmStation | null {
+  if (!name || qtfmStations.length === 0) return null;
+  const clean = name.toLowerCase().replace(/[\s\-_()（）\[\]【】·.]+/g, "");
+  
+  // 1. Exact match
+  const exact = qtfmStations.find(s => s.name === name || s.name.toLowerCase() === name.toLowerCase());
+  if (exact) return exact;
+
+  // 2. Normalized exact match
+  const normExact = qtfmStations.find(s => s.name.toLowerCase().replace(/[\s\-_()（）\[\]【】·.]+/g, "") === clean);
+  if (normExact) return normExact;
+
+  // 3. Substring match
+  const sub = qtfmStations.find(s => {
+    const sClean = s.name.toLowerCase().replace(/[\s\-_()（）\[\]【】·.]+/g, "");
+    return sClean.includes(clean) || clean.includes(sClean);
+  });
+  if (sub) return sub;
+
+  return null;
+}
+
+async function fetchOnlineRadioBrowserLogos(name: string): Promise<Array<{ url: string; title: string; source: string; tags?: string }>> {
+  const results: Array<{ url: string; title: string; source: string; tags?: string }> = [];
+  try {
+    const clean = name.replace(/(人民)?广播(电台)?/g, "").replace(/FM|AM|\d+\.?\d*/gi, "").trim();
+    const query = clean || name;
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 3500);
+    const resp = await fetch(`https://de1.api.radio-browser.info/json/stations/byname/${encodeURIComponent(query)}?limit=8`, {
+      signal: controller.signal,
+      headers: { "User-Agent": "RadioManager/1.0" }
+    });
+    clearTimeout(timeout);
+    if (resp.ok) {
+      const stations = await resp.json();
+      if (Array.isArray(stations)) {
+        for (const st of stations) {
+          if (st.favicon && typeof st.favicon === "string" && st.favicon.startsWith("http")) {
+            results.push({
+              url: st.favicon,
+              title: st.name || name,
+              source: "Radio-Browser.info",
+              tags: st.tags || ""
+            });
+          }
+        }
+      }
+    }
+  } catch (_) {
+    // ignore network timeout/errors
+  }
+  return results;
+}
+
   app.post("/api/channels/ai-enrich", async (req, res) => {
     try {
       const { name, currentData } = req.body;
@@ -2695,35 +2885,290 @@ async function startServer() {
         return res.status(400).json({ error: "频道名称不能为空" });
       }
 
-      const prompt = `你是一个专业的电视广播频道元数据补全助手。
-我提供了一个频道名称（可能还有当前的元数据），请你根据你的知识库，补全缺失的电台相关信息。
+      // 1. Check local preset library (qtfm.csv)
+      const qtfmMatch = findQtfmStation(name);
+      const onlineLogos = await fetchOnlineRadioBrowserLogos(name);
+
+      let aiResult: any = null;
+      let aiErrorMsg = "";
+
+      try {
+        const prompt = `你是一个专业的电视与广播电台元数据智能分析补全助手。
+我提供了一个电台或电视频道名称，请深度分析并补全该频道的核心属性：
+1. 电台/频道标准分类 (category)：必须精准。常用广播标准分类包括：交通台、音乐台、新闻资讯、经济台、文艺台、体育台、生活台、都市台、综合台、曲艺台、戏曲广播、故事广播、少儿广播、流行音乐、国际台、网络电台、央视频道、卫视频道、地方台等。
+2. 推荐标签列表 (suggestedCategories)：所有适合该电台的分组与标签（数组）。
+3. 频道台标图片 (logo)：请提供真实可用的官方/维基媒体/公开CDN台标图片直链 (PNG/JPG/SVG/WEBP)。
+4. 候选台标列表 (logoCandidates)：提供尽可能多个公开可用的台标或相关高清图标直链。
+5. 所属省份 (province) 与所属城市 (city)（若为中国省市广播）。
+6. 电台频率 (frequency)（如 FM 101.7, FM 97.4, AM 648 等）。
+7. 频道简短简介 (description)（1-2句精炼介绍）。
+8. 别名与呼号 (alias)（如全称、英文名、呼号、历史曾用名等）。
+9. EPG ID (epgId)（建议的拼音或标准英文标识）。
 
 频道名称: ${name}
-${currentData ? `当前已知信息:\n${JSON.stringify(currentData, null, 2)}` : ''}
+${currentData ? `当前已有信息:\n${JSON.stringify(currentData, null, 2)}` : ''}
+${qtfmMatch ? `本地电台库先验参考信息:\n${JSON.stringify({ name: qtfmMatch.name, category: qtfmMatch.category, province: qtfmMatch.province, city: qtfmMatch.city, description: qtfmMatch.description, logo: qtfmMatch.logo }, null, 2)}` : ''}
 
-请返回尽可能详细和准确的信息。如果不确定，请留空。不要生造虚假数据。`;
+请返回详细准确的信息。如果不确定某字段请留空，不要生造虚假数据。`;
 
-      const schema = {
-        type: Type.OBJECT,
-        properties: {
-          logo: { type: Type.STRING, description: "高质量的频道台标/Logo图片公开可用URL (PNG/SVG格式，建议使用维基百科或官方资源)" },
-          description: { type: Type.STRING, description: "该频道的简短描述 (1-2句话)" },
-          province: { type: Type.STRING, description: "该频道所属的中国省份/直辖市名称（如果适用，如 '北京', '广东'）" },
-          city: { type: Type.STRING, description: "该频道所属的城市名称（如果适用）" },
-          category: { type: Type.STRING, description: "频道的分类，如：央视、卫视、地方台、综合、新闻、少儿、体育、电影" },
-          alias: { type: Type.ARRAY, items: { type: Type.STRING }, description: "该频道的其他常见别名或曾用名" },
-          frequency: { type: Type.STRING, description: "该频道的FM频段或其他频率信息（适用于广播电台），如未提供请留空" }
+        const schema = {
+          type: Type.OBJECT,
+          properties: {
+            logo: { type: Type.STRING, description: "高质量公开可用的电台Logo图片直链 (PNG/SVG/JPG)" },
+            logoCandidates: { type: Type.ARRAY, items: { type: Type.STRING }, description: "多个候选可用Logo图片直链" },
+            category: { type: Type.STRING, description: "电台核心标准分类，如：交通台、音乐台、新闻资讯、经济台、都市台、文艺台、体育台、生活台、综合台、曲艺台、流行音乐等" },
+            suggestedCategories: { type: Type.ARRAY, items: { type: Type.STRING }, description: "所有适合的电台分类与标签列表" },
+            description: { type: Type.STRING, description: "该频道的简明描述 (1-2句话)" },
+            province: { type: Type.STRING, description: "所属中国省份/直辖市（如 '北京', '上海', '广东'）" },
+            city: { type: Type.STRING, description: "所属城市（如 '北京市', '广州市'）" },
+            frequency: { type: Type.STRING, description: "FM/AM频率信息（如 'FM 97.4', 'FM 105.7 / AM 648'）" },
+            alias: { type: Type.ARRAY, items: { type: Type.STRING }, description: "其他常见别名、呼号或英文名" },
+            epgId: { type: Type.STRING, description: "推荐匹配的 EPG ID" }
+          }
+        };
+
+        const result = await generateAIContent(prompt, schema, "gemini-2.5-flash", "gpt-4o-mini");
+        if (result) {
+          aiResult = JSON.parse(result);
         }
+      } catch (aiErr: any) {
+        console.warn("[AI Enrich Call Warning]", aiErr.message || aiErr);
+        aiErrorMsg = aiErr.message || "AI生成未完成";
+      }
+
+      // Collect and assemble logo candidates
+      const logoCandidates: string[] = [];
+      if (qtfmMatch?.logo) logoCandidates.push(qtfmMatch.logo);
+      if (aiResult?.logo) logoCandidates.push(aiResult.logo);
+      if (Array.isArray(aiResult?.logoCandidates)) {
+        aiResult.logoCandidates.forEach((l: string) => {
+          if (l && typeof l === "string" && l.startsWith("http")) logoCandidates.push(l);
+        });
+      }
+      onlineLogos.forEach(ol => {
+        if (ol.url && !logoCandidates.includes(ol.url)) logoCandidates.push(ol.url);
+      });
+
+      const uniqueLogos = Array.from(new Set(logoCandidates.filter(Boolean)));
+
+      // Collect categories
+      const categorySet = new Set<string>();
+      if (qtfmMatch?.category) categorySet.add(qtfmMatch.category);
+      if (aiResult?.category) categorySet.add(aiResult.category);
+      if (Array.isArray(aiResult?.suggestedCategories)) {
+        aiResult.suggestedCategories.forEach((c: string) => {
+          if (c && typeof c === "string") categorySet.add(c.trim());
+        });
+      }
+
+      // Fallback category mapping if still empty
+      if (categorySet.size === 0) {
+        if (/音乐|music|song|hit/i.test(name)) categorySet.add("音乐台");
+        else if (/交通|traffic/i.test(name)) categorySet.add("交通台");
+        else if (/新闻|资讯|news/i.test(name)) categorySet.add("新闻资讯");
+        else if (/经济|财经|finance/i.test(name)) categorySet.add("经济台");
+        else if (/都市|城市|urban/i.test(name)) categorySet.add("都市台");
+        else if (/文艺|文化|戏曲|曲艺/i.test(name)) categorySet.add("文艺台");
+        else if (/体育|sports/i.test(name)) categorySet.add("体育台");
+        else if (/生活|健康/i.test(name)) categorySet.add("生活台");
+        else if (/综合|之声/i.test(name)) categorySet.add("综合台");
+      }
+
+      const suggestedCategories = Array.from(categorySet);
+      const primaryCategory = aiResult?.category || qtfmMatch?.category || suggestedCategories[0] || "";
+
+      // Assemble final enriched data
+      const mergedData = {
+        name: name,
+        logo: uniqueLogos[0] || currentData?.logo || "",
+        logoCandidates: uniqueLogos,
+        category: primaryCategory,
+        suggestedCategories: suggestedCategories,
+        description: aiResult?.description || qtfmMatch?.description || currentData?.description || "",
+        province: aiResult?.province || qtfmMatch?.province || currentData?.province || "",
+        city: aiResult?.city || qtfmMatch?.city || currentData?.city || "",
+        frequency: aiResult?.frequency || currentData?.frequency || (qtfmMatch ? "" : ""),
+        alias: Array.from(new Set([
+          ...(Array.isArray(aiResult?.alias) ? aiResult.alias : []),
+          ...(qtfmMatch ? [qtfmMatch.name] : []),
+          ...(currentData?.alias ? (Array.isArray(currentData.alias) ? currentData.alias : String(currentData.alias).split(',').map((s: string) => s.trim())) : [])
+        ].filter(Boolean))),
+        epgId: aiResult?.epgId || currentData?.epgId || generateDefaultEpgId(name),
+        source: aiResult ? (qtfmMatch ? "AI + 本地电台库" : "AI 智能解析") : (qtfmMatch ? "本地电台知识库" : "智能推导"),
+        warning: !aiResult && aiErrorMsg ? `AI 接口提示: ${aiErrorMsg}，已使用内置数据库推导` : undefined
       };
 
-      const result = await generateAIContent(prompt, schema, "gemini-2.5-flash", "gpt-4o-mini");
-      if (!result) throw new Error("AI 返回了空结果");
-
-      const parsedResult = JSON.parse(result);
-      res.json({ success: true, data: parsedResult });
+      res.json({ success: true, data: mergedData });
     } catch (err: any) {
       console.error("[AI Enrich Error]", err.message);
       res.status(500).json({ error: err.message || "AI 补全失败" });
+    }
+  });
+
+  // Dedicated Logo search endpoint
+  app.post("/api/channels/search-logos", async (req, res) => {
+    try {
+      const { name } = req.body;
+      if (!name) return res.status(400).json({ error: "频道名称不能为空" });
+
+      const qtfmMatch = findQtfmStation(name);
+      const onlineLogos = await fetchOnlineRadioBrowserLogos(name);
+
+      const candidates: Array<{ url: string; title: string; source: string }> = [];
+
+      if (qtfmMatch?.logo) {
+        candidates.push({
+          url: qtfmMatch.logo,
+          title: `${qtfmMatch.name} (官方Logo)`,
+          source: "蜻蜓FM电台库"
+        });
+      }
+
+      onlineLogos.forEach(ol => {
+        candidates.push({
+          url: ol.url,
+          title: ol.title,
+          source: ol.source
+        });
+      });
+
+      // Try AI for additional high quality logo if needed
+      if (candidates.length < 2 && (geminiApiKey || openaiApiKey || process.env.GEMINI_API_KEY)) {
+        try {
+          const prompt = `请提供广播电台/频道 "${name}" 的官方或公开高清台标 Logo 图片直链 URL（如维基百科、官方图片等）。返回 JSON 数组格式包含 logoCandidates。`;
+          const schema = {
+            type: Type.OBJECT,
+            properties: {
+              logoCandidates: { type: Type.ARRAY, items: { type: Type.STRING } }
+            }
+          };
+          const result = await generateAIContent(prompt, schema, "gemini-2.5-flash", "gpt-4o-mini");
+          if (result) {
+            const parsed = JSON.parse(result);
+            if (Array.isArray(parsed.logoCandidates)) {
+              parsed.logoCandidates.forEach((u: string) => {
+                if (u && typeof u === "string" && u.startsWith("http") && !candidates.some(c => c.url === u)) {
+                  candidates.push({
+                    url: u,
+                    title: `${name} 台标`,
+                    source: "AI 知识库推荐"
+                  });
+                }
+              });
+            }
+          }
+        } catch (_) {}
+      }
+
+      res.json({ success: true, data: candidates });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message || "获取Logo失败" });
+    }
+  });
+
+  // Dedicated Category classification endpoint
+  app.post("/api/channels/ai-category", async (req, res) => {
+    try {
+      const { name } = req.body;
+      if (!name) return res.status(400).json({ error: "频道名称不能为空" });
+
+      const qtfmMatch = findQtfmStation(name);
+      const catSet = new Set<string>();
+      if (qtfmMatch?.category) catSet.add(qtfmMatch.category);
+
+      try {
+        const prompt = `请对电台/广播频道 "${name}" 进行专业分类。从以下标准广播类型中选择最适合的主分类和所有适合的备选分类：交通台、音乐台、新闻资讯、经济台、都市台、文艺台、体育台、生活台、综合台、曲艺台、戏曲广播、故事广播、少儿广播、流行音乐、国际台、校园广播、网络电台。`;
+        const schema = {
+          type: Type.OBJECT,
+          properties: {
+            category: { type: Type.STRING, description: "主分类名称" },
+            suggestedCategories: { type: Type.ARRAY, items: { type: Type.STRING }, description: "所有适合的分类标签" },
+            reason: { type: Type.STRING, description: "分类理由" }
+          }
+        };
+        const result = await generateAIContent(prompt, schema, "gemini-2.5-flash", "gpt-4o-mini");
+        if (result) {
+          const parsed = JSON.parse(result);
+          if (parsed.category) catSet.add(parsed.category);
+          if (Array.isArray(parsed.suggestedCategories)) {
+            parsed.suggestedCategories.forEach((c: string) => catSet.add(c));
+          }
+        }
+      } catch (_) {}
+
+      // Fallback heuristics
+      if (catSet.size === 0) {
+        if (/音乐|music|song|hit/i.test(name)) catSet.add("音乐台");
+        else if (/交通|traffic/i.test(name)) catSet.add("交通台");
+        else if (/新闻|资讯|news/i.test(name)) catSet.add("新闻资讯");
+        else if (/经济|财经|finance/i.test(name)) catSet.add("经济台");
+        else if (/都市|城市|urban/i.test(name)) catSet.add("都市台");
+        else if (/文艺|文化|戏曲|曲艺/i.test(name)) catSet.add("文艺台");
+        else if (/体育|sports/i.test(name)) catSet.add("体育台");
+        else if (/生活|健康/i.test(name)) catSet.add("生活台");
+        else if (/综合|之声/i.test(name)) catSet.add("综合台");
+        else catSet.add("其它频道");
+      }
+
+      const list = Array.from(catSet);
+      res.json({ success: true, data: { category: list[0] || "综合台", suggestedCategories: list } });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message || "分类获取失败" });
+    }
+  });
+
+  // Batch AI enrichment endpoint
+  app.post("/api/channels/batch-ai-enrich", async (req, res) => {
+    try {
+      const { channelIds, fields = ["logo", "category", "description"] } = req.body;
+      if (!Array.isArray(channelIds) || channelIds.length === 0) {
+        return res.status(400).json({ error: "请提供要补全的频道 ID 列表" });
+      }
+
+      const targetChannels = channels.filter(c => channelIds.includes(c.id)).slice(0, 30);
+      let updatedCount = 0;
+
+      for (const ch of targetChannels) {
+        const qtfmMatch = findQtfmStation(ch.name);
+        let changed = false;
+
+        // Fill missing logo
+        if (fields.includes("logo") && (!ch.logo || ch.logo.includes("unsplash") || ch.logo.includes("gtimg"))) {
+          if (qtfmMatch?.logo) {
+            ch.logo = qtfmMatch.logo;
+            changed = true;
+          }
+        }
+
+        // Fill missing category / tags
+        if (fields.includes("category") && (!ch.tagIds || ch.tagIds.length === 0 || ch.tagIds.includes("g_other"))) {
+          const catName = qtfmMatch?.category || (/音乐|music/i.test(ch.name) ? "音乐台" : /交通/i.test(ch.name) ? "交通台" : /新闻/i.test(ch.name) ? "新闻资讯" : "综合台");
+          let g = tags.find(t => t.name === catName);
+          if (!g) {
+            g = { id: "g_" + Math.random().toString(36).substring(2, 10), name: catName };
+            tags.push(g);
+          }
+          ch.tagIds = [g.id];
+          ch.groupIds = [g.id];
+          ch.category = catName;
+          changed = true;
+        }
+
+        // Fill missing description / province / city
+        if (fields.includes("description") && !ch.description && qtfmMatch?.description) {
+          ch.description = qtfmMatch.description;
+          if (qtfmMatch.province) ch.province = qtfmMatch.province;
+          if (qtfmMatch.city) ch.city = qtfmMatch.city;
+          changed = true;
+        }
+
+        if (changed) updatedCount++;
+      }
+
+      saveData();
+      res.json({ success: true, message: `成功完成 ${updatedCount} 个频道的智能元数据补全`, updatedCount });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message || "批量补全失败" });
     }
   });
 
@@ -3897,7 +4342,7 @@ ${currentData ? `当前已知信息:\n${JSON.stringify(currentData, null, 2)}` :
   });
 
   app.post("/api/sync-configs", (req, res) => {
-    const { name, url, type, autoSync, syncInterval } = req.body;
+    const { name, url, type, autoSync, syncInterval, description, category } = req.body;
     if (!name || !url) {
       return res.status(400).json({ error: "同步名称和URL为必填项" });
     }
@@ -3910,7 +4355,8 @@ ${currentData ? `当前已知信息:\n${JSON.stringify(currentData, null, 2)}` :
       autoSync: !!autoSync,
       syncInterval: Number(syncInterval) || 12,
       status: "never",
-      
+      description: description || "",
+      category: category || "",
     };
 
     syncConfigs.push(newConfig);
@@ -3920,7 +4366,7 @@ ${currentData ? `当前已知信息:\n${JSON.stringify(currentData, null, 2)}` :
 
   app.put("/api/sync-configs/:id", (req, res) => {
     const { id } = req.params;
-    const { name, url, type, autoSync, syncInterval,  disabled } = req.body;
+    const { name, url, type, autoSync, syncInterval, disabled, description, category } = req.body;
 
     const config = syncConfigs.find((c) => c.id === id);
     if (!config) {
@@ -3937,6 +4383,8 @@ ${currentData ? `当前已知信息:\n${JSON.stringify(currentData, null, 2)}` :
       config.url = url;
     }
     if (type) config.type = type;
+    if (description !== undefined) config.description = description;
+    if (category !== undefined) config.category = category;
     
     if (autoSync !== undefined) {
       config.autoSync = autoSync;
@@ -3968,6 +4416,61 @@ ${currentData ? `当前已知信息:\n${JSON.stringify(currentData, null, 2)}` :
 
     saveData();
     res.json({ success: true, message: "同步配置删除成功" });
+  });
+
+  // GET Preset GitHub Radio Sync Configs
+  app.get("/api/sync-configs/presets", (req, res) => {
+    res.json(DEFAULT_SYNC_CONFIGS);
+  });
+
+  // POST Add Preset GitHub Radio Sync Configs
+  app.post("/api/sync-configs/presets/add", async (req, res) => {
+    const { sourceIds, autoTriggerSync } = req.body || {};
+    const toAdd = DEFAULT_SYNC_CONFIGS.filter((preset) => {
+      if (sourceIds && Array.isArray(sourceIds) && sourceIds.length > 0) {
+        return sourceIds.includes(preset.id);
+      }
+      return true;
+    });
+
+    let addedCount = 0;
+    const addedConfigs: SyncConfig[] = [];
+    for (const item of toAdd) {
+      const existing = syncConfigs.find(
+        (sc) => sc.url === item.url || sc.id === item.id
+      );
+      if (!existing) {
+        const fresh: SyncConfig = { ...item };
+        syncConfigs.push(fresh);
+        addedConfigs.push(fresh);
+        addedCount++;
+      }
+    }
+
+    if (addedCount > 0) {
+      saveData();
+    }
+
+    // Trigger sync in background if requested
+    if (autoTriggerSync && addedConfigs.length > 0) {
+      setTimeout(async () => {
+        for (const cfg of addedConfigs) {
+          try {
+            await performSync(cfg, true);
+          } catch (e) {
+            console.error(`[Preset Sync Error] Failed to sync ${cfg.name}:`, e);
+          }
+        }
+        saveData();
+      }, 100);
+    }
+
+    res.json({
+      success: true,
+      message: `成功添加 ${addedCount} 个 GitHub 推荐电台同步源`,
+      addedCount,
+      syncConfigs,
+    });
   });
 
   // Batch Run All Active Sync Configs

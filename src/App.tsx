@@ -30,10 +30,93 @@ import {
   Menu,
   X,
   Sliders,
-  GitMerge
+  GitMerge,
+  Sparkles,
+  Globe,
+  ChevronDown,
+  ChevronUp,
+  ArrowUpDown,
+  Image as ImageIcon,
+  Wand2,
+  Tag as TagIcon
 } from "lucide-react";
 import { Channel, LiveSource, SyncConfig, TestStatus, EpgGuide, Tag, EpgSource } from "./types";
 import DashboardView from "./components/DashboardView";
+
+export const GITHUB_RADIO_PRESETS = [
+  {
+    id: "sc-fanmingming",
+    name: "Fanmingming 全国广播电台 (GitHub)",
+    url: "https://raw.githubusercontent.com/fanmingming/live/main/radio/m3u/index.m3u",
+    type: "m3u" as const,
+    autoSync: true,
+    syncInterval: 12,
+    category: "全国综合 / 省市广播",
+    description: "全国各省市综合广播、交通、音乐电台，自带官方高清台标与规范分类",
+    badge: "热门首选",
+    color: "emerald"
+  },
+  {
+    id: "sc-yuechan",
+    name: "YueChan 央广与省市精选电台 (GitHub)",
+    url: "https://raw.githubusercontent.com/YueChan/Live/main/Radio.m3u",
+    type: "m3u" as const,
+    autoSync: true,
+    syncInterval: 12,
+    category: "央广 / 核心频道",
+    description: "精选中国之声、经济之声、音乐之声及各省核心电台高可用线路",
+    badge: "央广高可用",
+    color: "blue"
+  },
+  {
+    id: "sc-huangsuming",
+    name: "HuangSuMing 总台与地方广播 (GitHub)",
+    url: "https://raw.githubusercontent.com/huangsuming/iptv/main/list/radio.txt",
+    type: "m3u" as const,
+    autoSync: true,
+    syncInterval: 12,
+    category: "总台 / 地方广播",
+    description: "中央人民广播电台总台频道与全国各主要省市地方广播电台汇编",
+    badge: "省市地方台",
+    color: "amber"
+  },
+  {
+    id: "sc-kaigecai",
+    name: "Kaige-Cai 流行音乐网络电台 (GitHub)",
+    url: "https://raw.githubusercontent.com/kaige-cai/live/main/radio.m3u",
+    type: "m3u" as const,
+    autoSync: true,
+    syncInterval: 12,
+    category: "流行音乐 / 网络电台",
+    description: "包含华语流行、亚洲流行、欧美潮流与经典音乐网络电台",
+    badge: "音乐流行",
+    color: "violet"
+  },
+  {
+    id: "sc-1",
+    name: "APTV 广播电台全集 (GitHub)",
+    url: "https://raw.githubusercontent.com/Kimentanm/aptv/master/m3u/radio.m3u",
+    type: "m3u" as const,
+    autoSync: true,
+    syncInterval: 12,
+    category: "海量全集",
+    description: "APTV 社区维护的海量国内外广播电台流媒体源集合",
+    badge: "全量合集",
+    color: "indigo"
+  },
+  {
+    id: "sc-bbc-uk",
+    name: "Free-TV 英国 BBC 广播精选 (GitHub)",
+    url: "https://raw.githubusercontent.com/Free-TV/IPTV/master/playlists/playlist_uk.m3u8",
+    type: "m3u" as const,
+    autoSync: true,
+    syncInterval: 24,
+    category: "国际广播 / 经典",
+    description: "BBC Radio 1/2/3/4/6 Music 等 320kbps 高音质国际广播",
+    badge: "国际广播",
+    color: "rose"
+  }
+];
 
 export default function App() {
   const [channels, setChannels] = useState<Channel[]>([]);
@@ -235,6 +318,15 @@ export default function App() {
   const [aiRecommendLoading, setAiRecommendLoading] = useState(false);
   const [aiRecommendError, setAiRecommendError] = useState("");
   const [isAiEnriching, setIsAiEnriching] = useState(false);
+
+  // Channel Sorting & AI Assistant States
+  const [channelSortBy, setChannelSortBy] = useState<"default" | "name_asc" | "name_desc" | "sources_active_desc" | "sources_active_asc" | "sources_total_desc" | "sources_total_asc">("default");
+  const [aiLogoCandidates, setAiLogoCandidates] = useState<Array<{ url: string; title: string; source: string }>>([]);
+  const [isAiLogoSearching, setIsAiLogoSearching] = useState(false);
+  const [aiCategorySuggestions, setAiCategorySuggestions] = useState<string[]>([]);
+  const [isAiCategorySearching, setIsAiCategorySearching] = useState(false);
+  const [isBatchAiModalOpen, setIsBatchAiModalOpen] = useState(false);
+  const [batchAiLoading, setBatchAiLoading] = useState(false);
 
   // Batch channel operations state
   const [selectedChannelIds, setSelectedChannelIds] = useState<string[]>([]);
@@ -1586,6 +1678,8 @@ export default function App() {
     setEditingChannel(null);
     setAiRecommends([]);
     setAiRecommendError("");
+    setAiLogoCandidates([]);
+    setAiCategorySuggestions([]);
     setChannelForm({
       name: "",
       groupIds: tags.length > 0 ? [tags[0].id] : [],
@@ -1607,6 +1701,8 @@ export default function App() {
     setEditingChannel(ch);
     setAiRecommends([]);
     setAiRecommendError("");
+    setAiLogoCandidates([]);
+    setAiCategorySuggestions([]);
     setChannelForm({
       name: ch.name || "",
       groupIds: ch.tagIds || ch.groupIds || [],
@@ -1985,7 +2081,8 @@ export default function App() {
             city: channelForm.city,
             category: channelForm.category,
             frequency: channelForm.frequency,
-            alias: channelForm.alias
+            alias: channelForm.alias,
+            logo: channelForm.logo
           }
         })
       });
@@ -1997,18 +2094,44 @@ export default function App() {
         if (enriched.description && !newForm.description) newForm.description = enriched.description;
         if (enriched.province && !newForm.province) newForm.province = enriched.province;
         if (enriched.city && !newForm.city) newForm.city = enriched.city;
-        if (enriched.category) {
+        if (enriched.category && !newForm.category) newForm.category = enriched.category;
+        
+        if (enriched.suggestedCategories && Array.isArray(enriched.suggestedCategories)) {
+          setAiCategorySuggestions(enriched.suggestedCategories);
+          const currentNewGroups = newForm.newGroupsString.split(/[,，、/|\\ \t]+/).map(s => s.trim()).filter(Boolean);
+          enriched.suggestedCategories.forEach((cat: string) => {
+            const matchedTag = tags.find(t => t.name === cat);
+            if (matchedTag && !newForm.groupIds.includes(matchedTag.id)) {
+              newForm.groupIds.push(matchedTag.id);
+            } else if (!matchedTag && !currentNewGroups.includes(cat)) {
+              currentNewGroups.push(cat);
+            }
+          });
+          newForm.newGroupsString = currentNewGroups.join(", ");
+        } else if (enriched.category) {
           const currentNewGroups = newForm.newGroupsString.split(/[,，、/|\\ \t]+/).map(s => s.trim()).filter(Boolean);
           const aiCats = enriched.category.split(/[,，、/|\\ \t]+/).map((s: string) => s.trim()).filter(Boolean);
           aiCats.forEach((cat: string) => {
-            if (!currentNewGroups.includes(cat) && !tags.some(t => t.name === cat && newForm.groupIds.includes(t.id))) {
+            const matchedTag = tags.find(t => t.name === cat);
+            if (matchedTag && !newForm.groupIds.includes(matchedTag.id)) {
+              newForm.groupIds.push(matchedTag.id);
+            } else if (!matchedTag && !currentNewGroups.includes(cat)) {
               currentNewGroups.push(cat);
             }
           });
           newForm.newGroupsString = currentNewGroups.join(", ");
         }
+
         if (enriched.frequency && !newForm.frequency) newForm.frequency = enriched.frequency;
         
+        if (enriched.logoCandidates && Array.isArray(enriched.logoCandidates) && enriched.logoCandidates.length > 0) {
+          setAiLogoCandidates(enriched.logoCandidates.map((u: string, idx: number) => ({
+            url: u,
+            title: `${enriched.name || channelForm.name} 候选 ${idx + 1}`,
+            source: idx === 0 ? "AI/知识库首选" : "在线候选源"
+          })));
+        }
+
         if (enriched.alias && Array.isArray(enriched.alias) && enriched.alias.length > 0) {
           const currentAliases = newForm.alias.split(',').map(s => s.trim()).filter(s => s);
           enriched.alias.forEach((a: string) => {
@@ -2020,7 +2143,7 @@ export default function App() {
         }
 
         setChannelForm(newForm);
-        showFeedback("success", "AI 智能补全成功");
+        showFeedback("success", `AI 智能补全成功 (${enriched.source || '智能推导'})`);
       } else {
         showFeedback("error", data.error || "AI 补全失败");
       }
@@ -2028,6 +2151,99 @@ export default function App() {
       showFeedback("error", err.message || "请求 AI 失败");
     } finally {
       setIsAiEnriching(false);
+    }
+  };
+
+  const runSearchLogo = async () => {
+    if (!channelForm.name.trim()) {
+      showFeedback("error", "请先填写频道名称");
+      return;
+    }
+    setIsAiLogoSearching(true);
+    try {
+      const res = await fetch("/api/channels/search-logos", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: channelForm.name })
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        if (data.data && data.data.length > 0) {
+          setAiLogoCandidates(data.data);
+          if (!channelForm.logo) {
+            setChannelForm(prev => ({ ...prev, logo: data.data[0].url }));
+          }
+          showFeedback("success", `已检索到 ${data.data.length} 个电台台标候选`);
+        } else {
+          showFeedback("info", "暂未从在线库与AI中检索到该电台的独立Logo，可手动填入图片直链");
+        }
+      } else {
+        showFeedback("error", data.error || "获取Logo失败");
+      }
+    } catch (err: any) {
+      showFeedback("error", err.message || "检索Logo网络异常");
+    } finally {
+      setIsAiLogoSearching(false);
+    }
+  };
+
+  const runAiCategory = async () => {
+    if (!channelForm.name.trim()) {
+      showFeedback("error", "请先填写频道名称");
+      return;
+    }
+    setIsAiCategorySearching(true);
+    try {
+      const res = await fetch("/api/channels/ai-category", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: channelForm.name })
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        const { category, suggestedCategories } = data.data;
+        setAiCategorySuggestions(suggestedCategories || [category]);
+        const newForm = { ...channelForm };
+        if (category) newForm.category = category;
+        (suggestedCategories || [category]).forEach((cat: string) => {
+          const matchedTag = tags.find(t => t.name === cat);
+          if (matchedTag && !newForm.groupIds.includes(matchedTag.id)) {
+            newForm.groupIds.push(matchedTag.id);
+          }
+        });
+        setChannelForm(newForm);
+        showFeedback("success", `智能识别电台分类: ${category}`);
+      } else {
+        showFeedback("error", data.error || "分类识别失败");
+      }
+    } catch (err: any) {
+      showFeedback("error", err.message || "分类识别失败");
+    } finally {
+      setIsAiCategorySearching(false);
+    }
+  };
+
+  const handleBatchAiEnrich = async (fields: string[] = ["logo", "category", "description"]) => {
+    if (selectedChannelIds.length === 0) return;
+    setBatchAiLoading(true);
+    try {
+      const res = await fetch("/api/channels/batch-ai-enrich", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ channelIds: selectedChannelIds, fields })
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        showFeedback("success", data.message || "批量补全成功");
+        setIsBatchAiModalOpen(false);
+        fetchData();
+      } else {
+        showFeedback("error", data.error || "批量补全失败");
+      }
+    } catch (err: any) {
+      showFeedback("error", err.message || "批量请求异常");
+    } finally {
+      setBatchAiLoading(false);
     }
   };
 
@@ -2093,21 +2309,49 @@ export default function App() {
     return ["all", ...tags.map(g => g.name)];
   };
 
-  const filteredChannels = channels.filter(c => {
-    const channelTags = c.tagIds || c.groupIds || [];
-    const groupNames = channelTags.map(gId => tags.find(g => g.id === gId)?.name || "").filter(Boolean);
-    const cleanQuery = searchQuery.toLowerCase().replace(/[-_.\s]+/g, "");
-    const matchesSearch = !cleanQuery ||
-                          c.name.toLowerCase().replace(/[-_.\s]+/g, "").includes(cleanQuery) ||
-                          c.alias.some(a => a.toLowerCase().replace(/[-_.\s]+/g, "").includes(cleanQuery)) ||
-                          groupNames.some(gn => gn.toLowerCase().replace(/[-_.\s]+/g, "").includes(cleanQuery));
-    
-    const matchesCategory = selectedCategory === "all" || channelTags.some(gId => {
-      const g = tags.find(gl => gl.id === gId);
-      return g && g.name === selectedCategory;
+  const filteredChannels = useMemo(() => {
+    let list = channels.filter(c => {
+      const channelTags = c.tagIds || c.groupIds || [];
+      const groupNames = channelTags.map(gId => tags.find(g => g.id === gId)?.name || "").filter(Boolean);
+      const cleanQuery = searchQuery.toLowerCase().replace(/[-_.\s]+/g, "");
+      const matchesSearch = !cleanQuery ||
+                            c.name.toLowerCase().replace(/[-_.\s]+/g, "").includes(cleanQuery) ||
+                            c.alias.some(a => a.toLowerCase().replace(/[-_.\s]+/g, "").includes(cleanQuery)) ||
+                            groupNames.some(gn => gn.toLowerCase().replace(/[-_.\s]+/g, "").includes(cleanQuery));
+      
+      const matchesCategory = selectedCategory === "all" || channelTags.some(gId => {
+        const g = tags.find(gl => gl.id === gId);
+        return g && g.name === selectedCategory;
+      });
+      return matchesSearch && matchesCategory;
     });
-    return matchesSearch && matchesCategory;
-  });
+
+    if (channelSortBy === "name_asc") {
+      list.sort((a, b) => a.name.localeCompare(b.name, "zh-CN", { numeric: true, sensitivity: "base" }));
+    } else if (channelSortBy === "name_desc") {
+      list.sort((a, b) => b.name.localeCompare(a.name, "zh-CN", { numeric: true, sensitivity: "base" }));
+    } else if (channelSortBy === "sources_active_desc") {
+      list.sort((a, b) => {
+        const aActive = (a.sources || []).filter(s => s.status === "active").length;
+        const bActive = (b.sources || []).filter(s => s.status === "active").length;
+        if (bActive !== aActive) return bActive - aActive;
+        return (b.sources?.length || 0) - (a.sources?.length || 0);
+      });
+    } else if (channelSortBy === "sources_active_asc") {
+      list.sort((a, b) => {
+        const aActive = (a.sources || []).filter(s => s.status === "active").length;
+        const bActive = (b.sources || []).filter(s => s.status === "active").length;
+        if (aActive !== bActive) return aActive - bActive;
+        return (a.sources?.length || 0) - (b.sources?.length || 0);
+      });
+    } else if (channelSortBy === "sources_total_desc") {
+      list.sort((a, b) => (b.sources?.length || 0) - (a.sources?.length || 0));
+    } else if (channelSortBy === "sources_total_asc") {
+      list.sort((a, b) => (a.sources?.length || 0) - (b.sources?.length || 0));
+    }
+
+    return list;
+  }, [channels, searchQuery, selectedCategory, channelSortBy, tags]);
 
   const slicedChannels = useMemo(() => {
     return filteredChannels.slice(0, channelPage * CHANNELS_PER_PAGE);
@@ -2702,10 +2946,47 @@ export default function App() {
                       <span className="text-[10px] text-slate-400">点击任意项管理播放源</span>
                     </div>
 
+                    {/* Channel List Sorting Toolbar */}
+                    <div className="flex items-center justify-between gap-2 pt-1 border-t border-slate-100/80">
+                      <div className="flex items-center gap-1.5 text-[11px] text-slate-500">
+                        <ArrowUpDown className="w-3.5 h-3.5 text-indigo-500" />
+                        <span className="font-semibold text-slate-600">排序:</span>
+                        <select
+                          value={channelSortBy}
+                          onChange={(e) => setChannelSortBy(e.target.value as any)}
+                          className="bg-white border border-slate-200 text-slate-700 text-[11px] font-bold py-1 px-2 rounded-lg focus:outline-none focus:border-indigo-500 cursor-pointer shadow-2xs hover:border-slate-300"
+                        >
+                          <option value="default">默认原序</option>
+                          <option value="name_asc">按名称 升序 (A → Z / 拼音)</option>
+                          <option value="name_desc">按名称 降序 (Z → A / 拼音)</option>
+                          <option value="sources_active_desc">按可用源 多 → 少 (优先活跃)</option>
+                          <option value="sources_active_asc">按可用源 少 → 多 (排查无源)</option>
+                          <option value="sources_total_desc">按总源数 多 → 少</option>
+                          <option value="sources_total_asc">按总源数 少 → 多</option>
+                        </select>
+                      </div>
+                      {channelSortBy !== "default" && (
+                        <button
+                          onClick={() => setChannelSortBy("default")}
+                          className="text-[10px] text-indigo-600 hover:text-indigo-800 font-bold px-1.5 py-0.5 rounded bg-indigo-50 hover:bg-indigo-100 transition cursor-pointer"
+                          title="重置为默认排序"
+                        >
+                          重置排序
+                        </button>
+                      )}
+                    </div>
+
                     {selectedChannelIds.length > 0 && (
                       <div className="flex items-center justify-between bg-blue-50/80 border border-blue-100 rounded-xl px-2.5 py-1.5 transition-all duration-200">
                         <span className="text-[10px] font-bold text-blue-700">已选 {selectedChannelIds.length} 个项目</span>
                         <div className="flex flex-wrap gap-1.5">
+                          <button
+                            onClick={() => setIsBatchAiModalOpen(true)}
+                            className="bg-purple-600 hover:bg-purple-700 text-white text-[10px] font-bold px-2.5 py-1 rounded-lg transition shadow-xs cursor-pointer flex items-center gap-1"
+                          >
+                            <Sparkles className="w-3 h-3" />
+                            批量AI补全
+                          </button>
                           <button
                             onClick={() => openBatchGroupModal()}
                             className="bg-blue-600 hover:bg-blue-700 text-white text-[10px] font-bold px-2.5 py-1 rounded-lg transition shadow-xs cursor-pointer flex items-center gap-1"
@@ -5596,19 +5877,47 @@ export default function App() {
             <div className="p-6 overflow-y-auto flex-1">
               <form id="channelForm" onSubmit={handleSaveChannel} className="space-y-4 text-xs font-semibold text-slate-600">
               
-              <div className="bg-indigo-50/50 p-3.5 rounded-xl border border-indigo-100 flex items-center justify-between font-sans mb-2">
-                <div className="pr-4">
-                  <h4 className="text-[11px] font-bold text-indigo-800 mb-0.5">✨ AI 智能元数据补全</h4>
-                  <p className="text-[9px] text-indigo-600/80 leading-relaxed">根据频道名称，自动从大模型提取缺失介绍、分类、地域、别名等信息（保留原有数据不覆盖）。</p>
+              {/* AI Assisted Enhancement Toolbar */}
+              <div className="bg-gradient-to-r from-indigo-50/80 to-purple-50/80 p-3.5 rounded-xl border border-indigo-100/80 space-y-2.5 font-sans mb-3 shadow-2xs">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-1.5">
+                    <Sparkles className="w-4 h-4 text-indigo-600" />
+                    <h4 className="text-[12px] font-bold text-indigo-900">✨ AI 智能辅助编辑</h4>
+                  </div>
+                  <span className="text-[10px] text-indigo-600/70 font-normal">基于大模型 + 蜻蜓FM知识库</span>
                 </div>
-                <button
-                  type="button"
-                  onClick={runAiEnrich}
-                  disabled={isAiEnriching || !channelForm.name.trim()}
-                  className="bg-indigo-600 hover:bg-indigo-700 text-white text-[10px] font-bold px-3 py-1.5 rounded-lg transition disabled:bg-indigo-300 disabled:cursor-not-allowed flex-shrink-0 cursor-pointer shadow-sm"
-                >
-                  {isAiEnriching ? "处理中..." : "一键补全"}
-                </button>
+                <p className="text-[10px] text-slate-500 leading-relaxed font-normal">
+                  根据电台名称自动补全高清台标、所属分类、电台简介、发射频率与别名呼号。
+                </p>
+                <div className="flex flex-wrap gap-2 pt-0.5">
+                  <button
+                    type="button"
+                    onClick={runAiEnrich}
+                    disabled={isAiEnriching || !channelForm.name.trim()}
+                    className="bg-indigo-600 hover:bg-indigo-700 text-white text-[10px] font-bold px-3 py-1.5 rounded-lg transition disabled:bg-indigo-300 disabled:cursor-not-allowed flex items-center gap-1 cursor-pointer shadow-xs"
+                  >
+                    <Wand2 className="w-3 h-3" />
+                    {isAiEnriching ? "补全中..." : "AI 全能补全"}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={runSearchLogo}
+                    disabled={isAiLogoSearching || !channelForm.name.trim()}
+                    className="bg-purple-600 hover:bg-purple-700 text-white text-[10px] font-bold px-3 py-1.5 rounded-lg transition disabled:bg-purple-300 disabled:cursor-not-allowed flex items-center gap-1 cursor-pointer shadow-xs"
+                  >
+                    <ImageIcon className="w-3 h-3" />
+                    {isAiLogoSearching ? "检索Logo..." : "智能获取Logo"}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={runAiCategory}
+                    disabled={isAiCategorySearching || !channelForm.name.trim()}
+                    className="bg-emerald-600 hover:bg-emerald-700 text-white text-[10px] font-bold px-3 py-1.5 rounded-lg transition disabled:bg-emerald-300 disabled:cursor-not-allowed flex items-center gap-1 cursor-pointer shadow-xs"
+                  >
+                    <TagIcon className="w-3 h-3" />
+                    {isAiCategorySearching ? "分类中..." : "获取电台分类"}
+                  </button>
+                </div>
               </div>
 
               <div className="space-y-1.5 font-sans">
@@ -5676,48 +5985,106 @@ export default function App() {
                 </div>
               </div>
 
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div className="space-y-1.5 font-sans">
-                  <label>关联直播标签 (选择一个或多个分组) *</label>
-                  <div className="border border-slate-200 rounded-xl bg-slate-50 p-2.5 max-h-32 overflow-y-auto space-y-1" id="group_checkboxes_pnl">
-                    {tags.map((g) => {
-                      const isChecked = channelForm.groupIds.includes(g.id);
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <label className="text-slate-600 font-bold">关联直播标签 (选择一个或多个分组) *</label>
+                  <button
+                    type="button"
+                    onClick={runAiCategory}
+                    disabled={isAiCategorySearching || !channelForm.name.trim()}
+                    className="text-emerald-700 bg-emerald-50 hover:bg-emerald-100 px-2 py-0.5 rounded-lg border border-emerald-200 text-[10px] font-bold flex items-center gap-1 transition cursor-pointer disabled:opacity-50"
+                  >
+                    <TagIcon className="w-3 h-3" />
+                    {isAiCategorySearching ? "分析中..." : "AI 推荐分类"}
+                  </button>
+                </div>
+
+                {aiCategorySuggestions.length > 0 && (
+                  <div className="bg-emerald-50/60 p-2 rounded-xl border border-emerald-100 flex flex-wrap items-center gap-1.5 font-sans">
+                    <span className="text-[10px] font-bold text-emerald-800 flex items-center gap-1">
+                      <TagIcon className="w-3 h-3" />
+                      推荐分类 (点击快速关联):
+                    </span>
+                    {aiCategorySuggestions.map((cat) => {
+                      const matchedTag = tags.find(t => t.name === cat);
+                      const isAlreadyIn = matchedTag ? channelForm.groupIds.includes(matchedTag.id) : channelForm.newGroupsString.includes(cat);
                       return (
-                        <label key={g.id} className={`flex items-center gap-2 cursor-pointer py-1.5 rounded-lg px-2.5 select-none transition ${isChecked ? 'bg-indigo-50 border border-indigo-100' : 'hover:bg-slate-100/80 border border-transparent'}`}>
-                          <input
-                            type="checkbox"
-                            checked={isChecked}
-                            onChange={(e) => {
-                              const checked = e.target.checked;
-                              let newIds = [...channelForm.groupIds];
-                              if (checked) {
-                                if (!newIds.includes(g.id)) newIds.push(g.id);
+                        <button
+                          key={cat}
+                          type="button"
+                          onClick={() => {
+                            if (matchedTag) {
+                              if (!channelForm.groupIds.includes(matchedTag.id)) {
+                                setChannelForm({ ...channelForm, groupIds: [...channelForm.groupIds, matchedTag.id] });
+                                showFeedback("success", `已添加分组标签: ${cat}`);
                               } else {
-                                newIds = newIds.filter(id => id !== g.id);
+                                setChannelForm({ ...channelForm, groupIds: channelForm.groupIds.filter(id => id !== matchedTag.id) });
                               }
-                              setChannelForm({ ...channelForm, groupIds: newIds });
-                            }}
-                            className="rounded text-indigo-600 focus:ring-indigo-500 w-3.5 h-3.5 border-slate-300"
-                          />
-                          <span className={`text-[11px] font-bold ${isChecked ? 'text-indigo-700' : 'text-slate-700'}`}>{g.name}</span>
-                        </label>
+                            } else {
+                              const currentNew = channelForm.newGroupsString.split(/[,，、/|\\ \t]+/).map(s => s.trim()).filter(Boolean);
+                              if (!currentNew.includes(cat)) {
+                                currentNew.push(cat);
+                                setChannelForm({ ...channelForm, newGroupsString: currentNew.join(", ") });
+                                showFeedback("success", `已添加待创建标签: ${cat}`);
+                              }
+                            }
+                          }}
+                          className={`text-[10px] font-bold px-2 py-0.5 rounded-md transition flex items-center gap-1 cursor-pointer ${
+                            isAlreadyIn 
+                              ? "bg-emerald-600 text-white" 
+                              : "bg-white text-emerald-700 border border-emerald-200 hover:bg-emerald-100"
+                          }`}
+                        >
+                          {isAlreadyIn ? <Check className="w-2.5 h-2.5" /> : <Plus className="w-2.5 h-2.5" />}
+                          {cat}
+                        </button>
                       );
                     })}
                   </div>
-                </div>
+                )}
 
-                <div className="space-y-1.5 flex flex-col justify-between font-sans">
-                  <div>
-                    <label>创建并关联新标签 (动态逗号分隔)</label>
-                    <input
-                      type="text"
-                      value={channelForm.newGroupsString}
-                      onChange={(e)=>setChannelForm({...channelForm, newGroupsString: e.target.value})}
-                      placeholder="如: 黑龙江卫视, 蓝光专区"
-                      className="w-full text-xs p-2.5 mt-1 border border-slate-200 rounded-xl focus:border-indigo-500 bg-slate-50 focus:outline-none placeholder-slate-400 text-slate-800"
-                    />
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="space-y-1.5 font-sans">
+                    <div className="border border-slate-200 rounded-xl bg-slate-50 p-2.5 max-h-32 overflow-y-auto space-y-1" id="group_checkboxes_pnl">
+                      {tags.map((g) => {
+                        const isChecked = channelForm.groupIds.includes(g.id);
+                        return (
+                          <label key={g.id} className={`flex items-center gap-2 cursor-pointer py-1.5 rounded-lg px-2.5 select-none transition ${isChecked ? 'bg-indigo-50 border border-indigo-100' : 'hover:bg-slate-100/80 border border-transparent'}`}>
+                            <input
+                              type="checkbox"
+                              checked={isChecked}
+                              onChange={(e) => {
+                                const checked = e.target.checked;
+                                let newIds = [...channelForm.groupIds];
+                                if (checked) {
+                                  if (!newIds.includes(g.id)) newIds.push(g.id);
+                                } else {
+                                  newIds = newIds.filter(id => id !== g.id);
+                                }
+                                setChannelForm({ ...channelForm, groupIds: newIds });
+                              }}
+                              className="rounded text-indigo-600 focus:ring-indigo-500 w-3.5 h-3.5 border-slate-300"
+                            />
+                            <span className={`text-[11px] font-bold ${isChecked ? 'text-indigo-700' : 'text-slate-700'}`}>{g.name}</span>
+                          </label>
+                        );
+                      })}
+                    </div>
                   </div>
-                  <p className="text-[10px] text-slate-400 font-medium leading-relaxed font-sans">可以直接在这输入想加入的新类型，保存时系统会自动帮您创建组并关联，实现多对多绑定。</p>
+
+                  <div className="space-y-1.5 flex flex-col justify-between font-sans">
+                    <div>
+                      <label>创建并关联新标签 (动态逗号分隔)</label>
+                      <input
+                        type="text"
+                        value={channelForm.newGroupsString}
+                        onChange={(e)=>setChannelForm({...channelForm, newGroupsString: e.target.value})}
+                        placeholder="如: 交通台, 音乐台, 浙江卫视"
+                        className="w-full text-xs p-2.5 mt-1 border border-slate-200 rounded-xl focus:border-indigo-500 bg-slate-50 focus:outline-none placeholder-slate-400 text-slate-800"
+                      />
+                    </div>
+                    <p className="text-[10px] text-slate-400 font-medium leading-relaxed font-sans">可以直接在此输入想加入的新类型，保存时系统会自动创建并多对多绑定。</p>
+                  </div>
                 </div>
               </div>
 
@@ -5778,15 +6145,95 @@ export default function App() {
                 )}
               </div>
 
-              <div className="space-y-1.5 font-sans">
-                <label>频道台标图片图标 (Logo URL)</label>
-                <input 
-                  type="url"
-                  value={channelForm.logo}
-                  onChange={(e)=>setChannelForm({...channelForm, logo: e.target.value})}
-                  placeholder="https://..."
-                  className="w-full text-xs p-2.5 border border-slate-200 rounded-xl focus:border-indigo-500 bg-slate-50 focus:outline-none font-mono placeholder-slate-400 text-slate-800"
-                />
+              {/* Logo Section with Live Preview and Candidate Gallery */}
+              <div className="space-y-2 font-sans">
+                <div className="flex items-center justify-between">
+                  <label className="text-slate-600 font-bold">频道台标图片图标 (Logo URL)</label>
+                  <button
+                    type="button"
+                    onClick={runSearchLogo}
+                    disabled={isAiLogoSearching || !channelForm.name.trim()}
+                    className="text-purple-700 bg-purple-50 hover:bg-purple-100 px-2.5 py-1 rounded-lg border border-purple-200 text-[10px] font-bold flex items-center gap-1 transition cursor-pointer disabled:opacity-50"
+                  >
+                    <ImageIcon className="w-3 h-3" />
+                    {isAiLogoSearching ? "搜索中..." : "在线搜索Logo"}
+                  </button>
+                </div>
+                
+                <div className="flex items-center gap-3">
+                  <div className="w-12 h-12 rounded-xl bg-slate-100 border border-slate-200 flex-shrink-0 flex items-center justify-center overflow-hidden p-1 shadow-2xs">
+                    {channelForm.logo ? (
+                      <img 
+                        src={channelForm.logo} 
+                        alt="台标预览" 
+                        referrerPolicy="no-referrer"
+                        className="w-full h-full object-contain"
+                        onError={(e) => {
+                          (e.target as HTMLImageElement).src = "https://vfiles.gtimg.cn/vupload/20210729/cf2b0d1627514936398.png";
+                        }}
+                      />
+                    ) : (
+                      <Radio className="w-6 h-6 text-slate-400" />
+                    )}
+                  </div>
+                  <input 
+                    type="url"
+                    value={channelForm.logo}
+                    onChange={(e)=>setChannelForm({...channelForm, logo: e.target.value})}
+                    placeholder="https://..."
+                    className="flex-1 text-xs p-2.5 border border-slate-200 rounded-xl focus:border-indigo-500 bg-slate-50 focus:outline-none font-mono placeholder-slate-400 text-slate-800"
+                  />
+                </div>
+
+                {aiLogoCandidates.length > 0 && (
+                  <div className="bg-purple-50/50 p-2.5 rounded-xl border border-purple-100 space-y-2 font-sans">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[10px] font-bold text-purple-900 flex items-center gap-1">
+                        <Sparkles className="w-3 h-3 text-purple-600" />
+                        台标候选图库 (共 {aiLogoCandidates.length} 个，点击直接采纳):
+                      </span>
+                    </div>
+                    <div className="grid grid-cols-3 sm:grid-cols-4 gap-2 max-h-40 overflow-y-auto p-1">
+                      {aiLogoCandidates.map((cand, idx) => {
+                        const isSelected = channelForm.logo === cand.url;
+                        return (
+                          <div
+                            key={cand.url + idx}
+                            onClick={() => {
+                              setChannelForm(prev => ({ ...prev, logo: cand.url }));
+                              showFeedback("success", `已应用 ${cand.title || '该台标'}`);
+                            }}
+                            className={`p-1.5 rounded-xl border flex flex-col items-center gap-1 cursor-pointer transition relative group ${
+                              isSelected 
+                                ? "bg-purple-100/80 border-purple-500 shadow-xs" 
+                                : "bg-white border-slate-200 hover:border-purple-300 hover:bg-purple-50/50"
+                            }`}
+                          >
+                            <div className="w-10 h-10 rounded-lg bg-white border border-slate-100 flex items-center justify-center p-0.5 overflow-hidden">
+                              <img 
+                                src={cand.url} 
+                                alt={cand.title} 
+                                referrerPolicy="no-referrer"
+                                className="w-full h-full object-contain"
+                                onError={(e) => {
+                                  (e.target as HTMLImageElement).src = "https://vfiles.gtimg.cn/vupload/20210729/cf2b0d1627514936398.png";
+                                }}
+                              />
+                            </div>
+                            <span className="text-[8px] font-bold text-slate-600 text-center truncate max-w-full px-1">
+                              {cand.source || `候选 ${idx + 1}`}
+                            </span>
+                            {isSelected && (
+                              <div className="absolute top-1 right-1 bg-purple-600 text-white rounded-full p-0.5">
+                                <Check className="w-2.5 h-2.5" />
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
               </div>
 
               <div className="space-y-1.5 font-sans">
@@ -6080,6 +6527,108 @@ export default function App() {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Modal Dialog: Batch AI Enrichment */}
+      {isBatchAiModalOpen && (
+        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 font-sans" id="batch_ai_modal">
+          <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl border border-slate-100 space-y-5 flex flex-col animate-fade-in">
+            <div className="flex justify-between items-center">
+              <h3 className="text-sm font-bold text-slate-800 flex items-center gap-1.5 font-sans">
+                <Sparkles className="w-4 h-4 text-purple-600" />
+                批量 AI 智能补全 ({selectedChannelIds.length} 个频道)
+              </h3>
+              <button 
+                className="text-slate-400 hover:text-slate-600 font-bold" 
+                onClick={() => setIsBatchAiModalOpen(false)}
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="space-y-3.5 text-xs font-semibold text-slate-600">
+              <div className="bg-purple-50/60 p-3 rounded-xl border border-purple-100 text-[11px] text-purple-800 space-y-1">
+                <p className="font-bold flex items-center gap-1">
+                  <Wand2 className="w-3.5 h-3.5 text-purple-600" />
+                  智能补全工作流引擎
+                </p>
+                <p className="text-[10px] text-purple-600 font-normal leading-relaxed">
+                  系统将依据频道中文名称，按「本地蜻蜓FM全国电台知识库 ➔ 在线 Radio-Browser ➔ Gemini 大语言模型」多级管道精准检索并自动填充元数据。
+                </p>
+              </div>
+
+              <div className="space-y-2">
+                <label className="text-slate-700 block font-bold">选择需要补全的字段:</label>
+                <div className="space-y-2 bg-slate-50/70 p-3 rounded-xl border border-slate-200">
+                  <label className="flex items-center gap-2 cursor-pointer select-none">
+                    <input type="checkbox" defaultChecked id="batch_field_logo" className="w-3.5 h-3.5 text-purple-600 rounded" />
+                    <span className="text-[11px] text-slate-700 font-bold flex items-center gap-1">
+                      <ImageIcon className="w-3 h-3 text-purple-600" />
+                      电台台标 (Logo)
+                    </span>
+                    <span className="text-[10px] text-slate-400 font-normal ml-auto">仅在原台标为空时补全</span>
+                  </label>
+                  <label className="flex items-center gap-2 cursor-pointer select-none">
+                    <input type="checkbox" defaultChecked id="batch_field_category" className="w-3.5 h-3.5 text-purple-600 rounded" />
+                    <span className="text-[11px] text-slate-700 font-bold flex items-center gap-1">
+                      <TagIcon className="w-3 h-3 text-emerald-600" />
+                      电台分类与分组 (Category)
+                    </span>
+                    <span className="text-[10px] text-slate-400 font-normal ml-auto">自动匹配或创建标签</span>
+                  </label>
+                  <label className="flex items-center gap-2 cursor-pointer select-none">
+                    <input type="checkbox" defaultChecked id="batch_field_description" className="w-3.5 h-3.5 text-purple-600 rounded" />
+                    <span className="text-[11px] text-slate-700 font-bold">电台简介 (Description)</span>
+                    <span className="text-[10px] text-slate-400 font-normal ml-auto">生成特色介绍</span>
+                  </label>
+                  <label className="flex items-center gap-2 cursor-pointer select-none">
+                    <input type="checkbox" defaultChecked id="batch_field_frequency" className="w-3.5 h-3.5 text-purple-600 rounded" />
+                    <span className="text-[11px] text-slate-700 font-bold">广播频率与别名 (Frequency & Alias)</span>
+                  </label>
+                </div>
+              </div>
+
+              <div className="flex gap-3 pt-2">
+                <button 
+                  type="button" 
+                  onClick={() => setIsBatchAiModalOpen(false)}
+                  disabled={batchAiLoading}
+                  className="w-1/3 py-2.5 border border-slate-200 hover:bg-slate-50 text-slate-600 rounded-xl cursor-pointer text-center font-bold"
+                >
+                  取消
+                </button>
+                <button 
+                  type="button" 
+                  disabled={batchAiLoading}
+                  onClick={() => {
+                    const fields: string[] = [];
+                    if ((document.getElementById("batch_field_logo") as HTMLInputElement)?.checked) fields.push("logo");
+                    if ((document.getElementById("batch_field_category") as HTMLInputElement)?.checked) fields.push("category");
+                    if ((document.getElementById("batch_field_description") as HTMLInputElement)?.checked) fields.push("description");
+                    if ((document.getElementById("batch_field_frequency") as HTMLInputElement)?.checked) {
+                      fields.push("frequency");
+                      fields.push("alias");
+                    }
+                    handleBatchAiEnrich(fields.length > 0 ? fields : ["logo", "category", "description"]);
+                  }}
+                  className="w-2/3 py-2.5 bg-purple-600 hover:bg-purple-700 disabled:bg-purple-300 text-white rounded-xl cursor-pointer text-center font-bold shadow-md flex items-center justify-center gap-1.5"
+                >
+                  {batchAiLoading ? (
+                    <>
+                      <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                      AI 智能处理中...
+                    </>
+                  ) : (
+                    <>
+                      <Sparkles className="w-3.5 h-3.5" />
+                      开始批量补全 ({selectedChannelIds.length} 个)
+                    </>
+                  )}
+                </button>
+              </div>
+            </div>
           </div>
         </div>
       )}
