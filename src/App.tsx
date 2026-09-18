@@ -38,7 +38,14 @@ import {
   ArrowUpDown,
   Image as ImageIcon,
   Wand2,
-  Tag as TagIcon
+  Tag as TagIcon,
+  ZoomIn,
+  ZoomOut,
+  Maximize2,
+  Minimize2,
+  Sun,
+  Moon,
+  Grid
 } from "lucide-react";
 import { Channel, LiveSource, SyncConfig, TestStatus, EpgGuide, Tag, EpgSource } from "./types";
 import DashboardView from "./components/DashboardView";
@@ -328,6 +335,19 @@ export default function App() {
   const [isBatchAiModalOpen, setIsBatchAiModalOpen] = useState(false);
   const [batchAiLoading, setBatchAiLoading] = useState(false);
 
+  // Enlarged Logo Lightbox Modal state
+  const [enlargedLogo, setEnlargedLogo] = useState<{ url: string; title: string; subtitle?: string; dimensions?: { width: number; height: number } } | null>(null);
+  const [logoZoomScale, setLogoZoomScale] = useState<number>(1);
+  const [logoBgMode, setLogoBgMode] = useState<"checkered" | "dark" | "light">("checkered");
+
+  // Reset zoom scale when opened
+  const openEnlargedLogo = (logoData: { url: string; title: string; subtitle?: string }) => {
+    if (!logoData.url || logoData.url.trim() === "") return;
+    setEnlargedLogo(logoData);
+    setLogoZoomScale(1);
+    setLogoBgMode("checkered");
+  };
+
   // Batch channel operations state
   const [selectedChannelIds, setSelectedChannelIds] = useState<string[]>([]);
   const [isBatchGroupModalOpen, setIsBatchGroupModalOpen] = useState(false);
@@ -349,6 +369,17 @@ export default function App() {
         
     status: ""
   });
+
+  // Auto-close enlarged logo on Escape key
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape" && enlargedLogo) {
+        setEnlargedLogo(null);
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [enlargedLogo]);
 
   // Auto-reset current pagination page limit back to 1 when search filters change
   useEffect(() => {
@@ -2883,15 +2914,15 @@ export default function App() {
                   </div>
 
                   {/* Category tag Selector pill */}
-                  <div className="flex flex-wrap items-center gap-1.5 bg-white border border-slate-200 rounded-xl px-2.5 py-1" id="category_pills">
-                    <Filter className="w-3.5 h-3.5 text-slate-400 mr-1" />
+                  <div className="flex items-center gap-1.5 bg-white border border-slate-200 rounded-xl px-2.5 py-1.5 overflow-x-auto no-scrollbar max-w-full" id="category_pills">
+                    <Filter className="w-3.5 h-3.5 text-slate-400 mr-1 shrink-0" />
                     {getUniqueCategories().map((cat) => (
                       <button
                         key={cat}
                         onClick={() => setSelectedCategory(cat)}
-                        className={`px-2.5 py-1 rounded-lg text-[11px] font-bold transition ${
+                        className={`px-2.5 py-1 rounded-lg text-[11px] font-bold transition shrink-0 cursor-pointer ${
                           selectedCategory === cat 
-                          ? "bg-blue-600 text-white" 
+                          ? "bg-blue-600 text-white shadow-xs" 
                           : "text-slate-500 hover:bg-slate-50 hover:text-slate-800"
                         }`}
                       >
@@ -3072,12 +3103,28 @@ export default function App() {
                                   }
                                 }}
                               />
-                              <img 
-                                src={ch.logo || "https://images.unsplash.com/photo-1598257006458-087169a1f08d?auto=format&fit=crop&w=48&h=48&q=80"}
-                                alt="logo"
-                                className="w-8 h-8 rounded-lg object-contain bg-slate-100 p-0.5 shadow-xs flex-shrink-0"
-                                onError={(e)=>{ (e.target as HTMLImageElement).src="https://images.unsplash.com/photo-1598257006458-087169a1f08d?auto=format&fit=crop&w=48&h=48&q=80" }}
-                              />
+                              <div 
+                                className="relative group/logo flex-shrink-0 cursor-zoom-in"
+                                title="点击放大查看台标"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  openEnlargedLogo({
+                                    url: ch.logo || "https://images.unsplash.com/photo-1598257006458-087169a1f08d?auto=format&fit=crop&w=300&q=80",
+                                    title: ch.name,
+                                    subtitle: [ch.frequency, (ch.tagIds || ch.groupIds || []).map(gId => tags.find(g => g.id === gId)?.name).filter(Boolean).join(", ")].filter(Boolean).join(" · ")
+                                  });
+                                }}
+                              >
+                                <img 
+                                  src={ch.logo || "https://images.unsplash.com/photo-1598257006458-087169a1f08d?auto=format&fit=crop&w=48&h=48&q=80"}
+                                  alt="logo"
+                                  className="w-8 h-8 rounded-lg object-contain bg-slate-100 p-0.5 shadow-xs flex-shrink-0 group-hover/logo:ring-2 group-hover/logo:ring-blue-400 transition"
+                                  onError={(e)=>{ (e.target as HTMLImageElement).src="https://images.unsplash.com/photo-1598257006458-087169a1f08d?auto=format&fit=crop&w=48&h=48&q=80" }}
+                                />
+                                <div className="absolute inset-0 bg-slate-900/40 opacity-0 group-hover/logo:opacity-100 transition-opacity rounded-lg flex items-center justify-center pointer-events-none">
+                                  <ZoomIn className="w-3.5 h-3.5 text-white drop-shadow-xs" />
+                                </div>
+                              </div>
                               <div className="min-w-0 flex-1">
                                 <p className="text-xs font-bold text-slate-800 flex items-center gap-1.5 truncate">
                                   {ch.name}
@@ -3150,12 +3197,27 @@ export default function App() {
                       {/* Sub header for channel detail view */}
                       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 pb-4 border-b border-slate-100">
                         <div className="flex items-center gap-3">
-                          <img 
-                            src={selectedChannel.logo || "https://images.unsplash.com/photo-1598257006458-087169a1f08d?auto=format&fit=crop&w=48&h=48&q=80"} 
-                            alt="logo" 
-                            className="w-10 h-10 rounded-xl object-contain bg-slate-50 border p-1"
-                            onError={(e)=>{ (e.target as HTMLImageElement).src="https://images.unsplash.com/photo-1598257006458-087169a1f08d?auto=format&fit=crop&w=48&h=48&q=80" }}
-                          />
+                          <div 
+                            className="relative group/headlogo flex-shrink-0 cursor-zoom-in"
+                            title="点击放大查看高清台标"
+                            onClick={() => {
+                              openEnlargedLogo({
+                                url: selectedChannel.logo || "https://images.unsplash.com/photo-1598257006458-087169a1f08d?auto=format&fit=crop&w=400&q=80",
+                                title: selectedChannel.name,
+                                subtitle: [selectedChannel.frequency, (selectedChannel.tagIds || selectedChannel.groupIds || []).map(gId => tags.find(g => g.id === gId)?.name).filter(Boolean).join(", ")].filter(Boolean).join(" · ")
+                              });
+                            }}
+                          >
+                            <img 
+                              src={selectedChannel.logo || "https://images.unsplash.com/photo-1598257006458-087169a1f08d?auto=format&fit=crop&w=48&h=48&q=80"} 
+                              alt="logo" 
+                              className="w-10 h-10 rounded-xl object-contain bg-slate-50 border p-1 group-hover/headlogo:ring-2 group-hover/headlogo:ring-blue-500 transition shadow-xs"
+                              onError={(e)=>{ (e.target as HTMLImageElement).src="https://images.unsplash.com/photo-1598257006458-087169a1f08d?auto=format&fit=crop&w=48&h=48&q=80" }}
+                            />
+                            <div className="absolute inset-0 bg-slate-900/40 opacity-0 group-hover/headlogo:opacity-100 transition-opacity rounded-xl flex items-center justify-center pointer-events-none">
+                              <ZoomIn className="w-4 h-4 text-white drop-shadow-xs" />
+                            </div>
+                          </div>
                           <div>
                             <div className="flex items-center gap-2">
                               <h3 className="font-bold text-slate-800 text-sm leading-tight">{selectedChannel.name}</h3>
@@ -3876,8 +3938,8 @@ export default function App() {
                       </div>
                     ) : (
                       <>
-                        <div className="overflow-x-auto max-h-[600px] overflow-y-auto">
-                          <table className="w-full text-left border-collapse" id="global_sources_table">
+                        <div className="overflow-x-auto max-h-[600px] overflow-y-auto no-scrollbar">
+                          <table className="w-full min-w-[600px] text-left border-collapse" id="global_sources_table">
                             <thead className="sticky top-0 bg-slate-50 border-b border-slate-200 shadow-xs z-10">
                               <tr className="text-[10px] uppercase font-bold text-slate-400 tracking-wider">
                                 <th className="py-4 px-4 w-12 text-center">
@@ -3924,7 +3986,16 @@ export default function App() {
                                   <td className="py-3.5 px-3">
                                     <div className="flex items-center gap-2">
                                       {item.channelLogo && item.channelLogo.trim() !== "" ? (
-                                        <img src={item.channelLogo} alt={item.channelName} className="w-5.5 h-5.5 object-contain bg-slate-50 rounded border border-slate-100 p-0.5 shrink-0" referrerPolicy="no-referrer" />
+                                        <div 
+                                          className="relative group/sourcelogo cursor-zoom-in shrink-0" 
+                                          title="点击放大查看台标"
+                                          onClick={() => openEnlargedLogo({ url: item.channelLogo!, title: item.channelName })}
+                                        >
+                                          <img src={item.channelLogo} alt={item.channelName} className="w-5.5 h-5.5 object-contain bg-slate-50 rounded border border-slate-100 p-0.5 shrink-0 group-hover/sourcelogo:ring-2 group-hover/sourcelogo:ring-indigo-400" referrerPolicy="no-referrer" />
+                                          <div className="absolute inset-0 bg-slate-900/40 opacity-0 group-hover/sourcelogo:opacity-100 transition-opacity rounded flex items-center justify-center pointer-events-none">
+                                            <ZoomIn className="w-2.5 h-2.5 text-white" />
+                                          </div>
+                                        </div>
                                       ) : (
                                         <div className="w-5.5 h-5.5 rounded bg-slate-100 text-[10px] font-black flex items-center justify-center text-slate-400 font-mono p-0.5">FM</div>
                                       )}
@@ -4288,15 +4359,15 @@ export default function App() {
                   </div>
                 </div>
 
-                <div className="flex items-center justify-between bg-slate-50 p-4 rounded-xl border border-slate-100 hover:bg-slate-100/50 transition">
-                  <div className="flex-1 pr-4">
+                <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between bg-slate-50 p-4 rounded-xl border border-slate-100 hover:bg-slate-100/50 transition gap-3">
+                  <div className="flex-1 pr-2">
                     <span className="font-bold text-slate-700 text-xs block">允许在自动同步时创建新频道</span>
                     <span className="text-[11px] text-slate-400 mt-0.5 block leading-relaxed">
                       开启时：拉取订阅源后，若发现未录入的频道名称，将被自动生成并标签；<br />
                       关闭时：不创建任何新频道，只对系统里已被添加或存在的现有频道，维护更新其对应的直播源线路。
                     </span>
                   </div>
-                  <div className="relative flex items-center shrink-0">
+                  <div className="relative flex items-center shrink-0 self-end sm:self-center">
                     <button
                       onClick={() => handleToggleAutoCreateChannel(!autoCreateChannel)}
                       className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors duration-200 focus:outline-none cursor-pointer ${
@@ -4408,41 +4479,46 @@ export default function App() {
                     </div>
                   </div>
 
-                  <div className="flex flex-wrap items-center gap-1.5 pt-2 pb-2 border-y border-slate-100 text-[11px]" id="subscription_backup_panel">
-                    <span className="text-[10px] text-slate-400 font-bold uppercase mr-1">数据订阅管理:</span>
-                    <button
-                      onClick={handleExportSubscriptions}
-                      className="text-emerald-600 hover:text-emerald-800 bg-emerald-50 hover:bg-emerald-100 px-2.5 py-1.5 rounded-xl font-bold text-[10.5px] transition cursor-pointer flex items-center gap-1"
-                      title="下载当前配置到本地 JSON"
-                    >
-                      <Download className="w-3 h-3" /> 导出备份 (JSON)
-                    </button>
-                    <button
-                      onClick={() => {
-                        setImportSubscriptionsContent("");
-                        setIsImportSubscriptionsOpen(true);
-                      }}
-                      className="text-violet-600 hover:text-violet-800 bg-violet-50 hover:bg-violet-100 px-2.5 py-1.5 rounded-xl font-bold text-[10.5px] transition cursor-pointer flex items-center gap-1"
-                      title="通过导入 JSON 备份恢复订阅"
-                    >
-                      <Upload className="w-3 h-3" /> 导入备份 (JSON)
-                    </button>
-                    <button
-                      onClick={handleQuickBackupSubscriptions}
-                      className="text-blue-600 hover:text-blue-800 bg-blue-50 hover:bg-blue-100 px-2.5 py-1.5 rounded-xl font-bold text-[10.5px] transition cursor-pointer flex items-center gap-1"
-                      title="备份到浏览器缓存中"
-                    >
-                      <Copy className="w-3 h-3" /> 快速暂存
-                    </button>
-                    {isQuickBackupAvailable && (
+                  <div className="pt-2 pb-2 border-y border-slate-100 space-y-2" id="subscription_backup_panel">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">数据订阅管理:</span>
+                      <span className="text-[9px] text-slate-400">支持备份与快速暂存</span>
+                    </div>
+                    <div className="grid grid-cols-2 sm:flex sm:flex-wrap gap-2 text-[11px]">
                       <button
-                        onClick={handleQuickRestoreSubscriptions}
-                        className="text-amber-600 hover:text-amber-800 bg-amber-50 hover:bg-amber-100 px-2.5 py-1.5 rounded-xl font-bold text-[10.5px] transition cursor-pointer flex items-center gap-1"
-                        title="从缓存中加载订阅"
+                        onClick={handleExportSubscriptions}
+                        className="text-emerald-600 hover:text-emerald-800 bg-emerald-50 hover:bg-emerald-100 px-3 py-2 sm:py-1.5 rounded-xl font-bold text-[11px] sm:text-[10.5px] transition cursor-pointer flex items-center justify-center gap-1.5 active:scale-95"
+                        title="下载当前配置到本地 JSON"
                       >
-                        <RefreshCw className="w-3 h-3" /> 快速恢复
+                        <Download className="w-3.5 h-3.5 shrink-0" /> 导出备份
                       </button>
-                    )}
+                      <button
+                        onClick={() => {
+                          setImportSubscriptionsContent("");
+                          setIsImportSubscriptionsOpen(true);
+                        }}
+                        className="text-violet-600 hover:text-violet-800 bg-violet-50 hover:bg-violet-100 px-3 py-2 sm:py-1.5 rounded-xl font-bold text-[11px] sm:text-[10.5px] transition cursor-pointer flex items-center justify-center gap-1.5 active:scale-95"
+                        title="通过导入 JSON 备份恢复订阅"
+                      >
+                        <Upload className="w-3.5 h-3.5 shrink-0" /> 导入备份
+                      </button>
+                      <button
+                        onClick={handleQuickBackupSubscriptions}
+                        className="text-blue-600 hover:text-blue-800 bg-blue-50 hover:bg-blue-100 px-3 py-2 sm:py-1.5 rounded-xl font-bold text-[11px] sm:text-[10.5px] transition cursor-pointer flex items-center justify-center gap-1.5 active:scale-95"
+                        title="备份到浏览器缓存中"
+                      >
+                        <Copy className="w-3.5 h-3.5 shrink-0" /> 快速暂存
+                      </button>
+                      {isQuickBackupAvailable && (
+                        <button
+                          onClick={handleQuickRestoreSubscriptions}
+                          className="text-amber-600 hover:text-amber-800 bg-amber-50 hover:bg-amber-100 px-3 py-2 sm:py-1.5 rounded-xl font-bold text-[11px] sm:text-[10.5px] transition cursor-pointer flex items-center justify-center gap-1.5 active:scale-95"
+                          title="从缓存中加载订阅"
+                        >
+                          <RefreshCw className="w-3.5 h-3.5 shrink-0" /> 快速恢复
+                        </button>
+                      )}
+                    </div>
                   </div>
 
                   <div className="space-y-4 flex-1 overflow-y-auto max-h-[460px]">
@@ -4455,16 +4531,16 @@ export default function App() {
                       syncConfigs.map((cfg) => (
                       <div 
                         key={cfg.id} 
-                        className={`p-4 rounded-xl border space-y-2.5 transition duration-150 ${
+                        className={`p-3.5 sm:p-4 rounded-xl border space-y-3 transition duration-150 min-w-0 overflow-hidden ${
                           cfg.disabled 
                             ? "border-rose-300 bg-rose-50/20 shadow-xs" 
                             : "border-slate-200 bg-slate-50/40"
                         }`}
                       >
-                        <div className="flex justify-between items-start gap-2">
-                          <div>
+                        <div className="flex flex-col sm:flex-row justify-between sm:items-start gap-2 min-w-0">
+                          <div className="min-w-0 flex-1">
                             <div className="flex items-center gap-1.5 flex-wrap">
-                              <p className="text-xs font-bold text-slate-800">{cfg.name}</p>
+                              <p className="text-xs font-bold text-slate-800 break-all">{cfg.name}</p>
                               
                               {cfg.disabled && (
                                 <span className="text-[9px] bg-rose-100 text-rose-800 font-bold px-1.5 py-0.5 rounded-sm border border-rose-200">
@@ -4472,10 +4548,10 @@ export default function App() {
                                 </span>
                               )}
                             </div>
-                            <p className="text-[10px] text-slate-400 font-mono mt-0.5 truncate max-w-sm">{cfg.url}</p>
+                            <p className="text-[10px] text-slate-400 font-mono mt-0.5 truncate w-full min-w-0 block" title={cfg.url}>{cfg.url}</p>
                           </div>
                           
-                          <div className="flex items-center gap-2 flex-shrink-0">
+                          <div className="flex items-center gap-2 flex-wrap shrink-0">
                             {/* Quick Switch Toggle */}
                             <div className="flex items-center gap-1.5 bg-white px-2 py-1 rounded-xl border border-slate-200 shadow-2xs hover:border-slate-300 transition">
                               <span className="text-[9.5px] font-bold text-slate-500">{cfg.disabled ? "已禁用" : "启用中"}</span>
@@ -4515,12 +4591,12 @@ export default function App() {
                         </div>
 
                         {/* Last synced metadata message banner */}
-                        <div className="text-[10px] text-slate-500 bg-white p-2.5 rounded-lg border border-slate-100 flex flex-col gap-1">
-                          <div className="flex justify-between items-center gap-2">
-                            <span className="truncate max-w-[280px] font-medium text-slate-600">
+                        <div className="text-[10px] text-slate-500 bg-white p-2.5 rounded-lg border border-slate-100 flex flex-col gap-1 min-w-0">
+                          <div className="flex flex-col sm:flex-row justify-between sm:items-center gap-1 min-w-0">
+                            <span className="truncate w-full min-w-0 font-medium text-slate-600" title={cfg.message || "准备拉取"}>
                               {cfg.message || "准备拉取"}
                             </span>
-                            <span className="text-slate-400 font-mono flex-shrink-0 bg-slate-50 px-1.5 py-0.5 rounded text-[9px]">
+                            <span className="text-slate-400 font-mono shrink-0 bg-slate-50 px-1.5 py-0.5 rounded text-[9px] self-start sm:self-auto">
                               {cfg.lastSynced ? new Date(cfg.lastSynced).toLocaleTimeString() : "未同步"}
                             </span>
                           </div>
@@ -4533,41 +4609,41 @@ export default function App() {
                         </div>
 
                         {/* Quick action controls */}
-                        <div className="flex justify-between pt-1">
+                        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2 pt-1 border-t border-slate-100/60">
                           <button 
                             onClick={() => triggerManualSyncRun(cfg.id)}
-                            className="text-indigo-600 hover:text-indigo-800 hover:underline text-[11px] font-bold flex items-center cursor-pointer"
+                            className="text-indigo-600 hover:text-indigo-800 hover:underline text-[11px] font-bold flex items-center cursor-pointer py-1 active:scale-95"
                           >
                             <RefreshCw className="w-3 h-3 mr-1" /> {cfg.disabled ? "重试并重新启用同步" : "立即手动拉取并覆盖同步"}
                           </button>
                             
-                            <div className="flex gap-2 w-full md:w-auto">
-                              <button 
-                                onClick={() => {
-                                  setEditingSync(cfg);
-                                  setSyncForm({
-                                    name: cfg.name,
-                                    url: cfg.url,
-                                    type: cfg.type,
-                                    autoSync: cfg.autoSync,
-                                    syncInterval: cfg.syncInterval,
-                                                                      });
-                                  setIsSyncModalOpen(true);
-                                }}
-                                className="text-slate-500 hover:text-slate-800 text-[11px] hover:underline"
-                              >
-                                编辑设置
-                              </button>
-                              <span>|</span>
-                              <button 
-                                onClick={() => handleDeleteSync(cfg.id)}
-                                className="text-red-500 hover:text-red-700 text-[11px] hover:underline"
-                              >
-                                彻底移除
-                              </button>
-                            </div>
+                          <div className="flex items-center gap-2 text-[11px]">
+                            <button 
+                              onClick={() => {
+                                setEditingSync(cfg);
+                                setSyncForm({
+                                  name: cfg.name,
+                                  url: cfg.url,
+                                  type: cfg.type,
+                                  autoSync: cfg.autoSync,
+                                  syncInterval: cfg.syncInterval,
+                                });
+                                setIsSyncModalOpen(true);
+                              }}
+                              className="text-slate-500 hover:text-slate-800 font-semibold hover:underline py-1 active:scale-95 cursor-pointer"
+                            >
+                              编辑设置
+                            </button>
+                            <span className="text-slate-300">|</span>
+                            <button 
+                              onClick={() => handleDeleteSync(cfg.id)}
+                              className="text-rose-500 hover:text-rose-700 font-semibold hover:underline py-1 active:scale-95 cursor-pointer"
+                            >
+                              彻底移除
+                            </button>
                           </div>
                         </div>
+                      </div>
                       ))
                     )}
                   </div>
@@ -4818,8 +4894,8 @@ export default function App() {
                       </p>
 
                       {/* Query parameters table */}
-                      <div className="border border-slate-100 rounded-xl overflow-hidden">
-                        <table className="w-full text-left border-collapse">
+                      <div className="border border-slate-100 rounded-xl overflow-x-auto no-scrollbar">
+                        <table className="w-full min-w-[500px] text-left border-collapse">
                           <thead>
                             <tr className="bg-slate-50/75 text-[10px] text-slate-500 font-bold border-b border-slate-100">
                               <th className="p-3">参数名</th>
@@ -4993,8 +5069,8 @@ export default function App() {
                       </p>
 
                       {/* Query parameters table */}
-                      <div className="border border-slate-100 rounded-xl overflow-hidden">
-                        <table className="w-full text-left border-collapse">
+                      <div className="border border-slate-100 rounded-xl overflow-x-auto no-scrollbar">
+                        <table className="w-full min-w-[500px] text-left border-collapse">
                           <thead>
                             <tr className="bg-slate-50/75 text-[10px] text-slate-500 font-bold border-b border-slate-100">
                               <th className="p-3">参数名</th>
@@ -6161,17 +6237,35 @@ export default function App() {
                 </div>
                 
                 <div className="flex items-center gap-3">
-                  <div className="w-12 h-12 rounded-xl bg-slate-100 border border-slate-200 flex-shrink-0 flex items-center justify-center overflow-hidden p-1 shadow-2xs">
+                  <div 
+                    onClick={() => {
+                      if (channelForm.logo) {
+                        openEnlargedLogo({
+                          url: channelForm.logo,
+                          title: channelForm.name ? `${channelForm.name} - 台标预览` : "台标预览",
+                        });
+                      }
+                    }}
+                    className={`w-12 h-12 rounded-xl bg-slate-100 border border-slate-200 flex-shrink-0 flex items-center justify-center overflow-hidden p-1 shadow-2xs relative group/editlogo ${
+                      channelForm.logo ? "cursor-zoom-in hover:border-indigo-400" : ""
+                    }`}
+                    title={channelForm.logo ? "点击放大预览台标" : "台标预览"}
+                  >
                     {channelForm.logo ? (
-                      <img 
-                        src={channelForm.logo} 
-                        alt="台标预览" 
-                        referrerPolicy="no-referrer"
-                        className="w-full h-full object-contain"
-                        onError={(e) => {
-                          (e.target as HTMLImageElement).src = "https://vfiles.gtimg.cn/vupload/20210729/cf2b0d1627514936398.png";
-                        }}
-                      />
+                      <>
+                        <img 
+                          src={channelForm.logo} 
+                          alt="台标预览" 
+                          referrerPolicy="no-referrer"
+                          className="w-full h-full object-contain"
+                          onError={(e) => {
+                            (e.target as HTMLImageElement).src = "https://vfiles.gtimg.cn/vupload/20210729/cf2b0d1627514936398.png";
+                          }}
+                        />
+                        <div className="absolute inset-0 bg-slate-900/40 opacity-0 group-hover/editlogo:opacity-100 transition-opacity rounded-xl flex items-center justify-center pointer-events-none">
+                          <ZoomIn className="w-3.5 h-3.5 text-white drop-shadow-xs" />
+                        </div>
+                      </>
                     ) : (
                       <Radio className="w-6 h-6 text-slate-400" />
                     )}
@@ -6209,7 +6303,7 @@ export default function App() {
                                 : "bg-white border-slate-200 hover:border-purple-300 hover:bg-purple-50/50"
                             }`}
                           >
-                            <div className="w-10 h-10 rounded-lg bg-white border border-slate-100 flex items-center justify-center p-0.5 overflow-hidden">
+                            <div className="w-10 h-10 rounded-lg bg-white border border-slate-100 flex items-center justify-center p-0.5 overflow-hidden relative group/candimg">
                               <img 
                                 src={cand.url} 
                                 alt={cand.title} 
@@ -6219,6 +6313,20 @@ export default function App() {
                                   (e.target as HTMLImageElement).src = "https://vfiles.gtimg.cn/vupload/20210729/cf2b0d1627514936398.png";
                                 }}
                               />
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  openEnlargedLogo({
+                                    url: cand.url,
+                                    title: `${channelForm.name || "电台"} - ${cand.title || cand.source || "候选台标"}`,
+                                  });
+                                }}
+                                className="absolute inset-0 bg-slate-900/50 opacity-0 group-hover/candimg:opacity-100 transition-opacity flex items-center justify-center text-white"
+                                title="放大查看"
+                              >
+                                <ZoomIn className="w-3.5 h-3.5" />
+                              </button>
                             </div>
                             <span className="text-[8px] font-bold text-slate-600 text-center truncate max-w-full px-1">
                               {cand.source || `候选 ${idx + 1}`}
@@ -6956,6 +7064,171 @@ export default function App() {
               >
                 确认继续
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Enlarged Channel Logo Lightbox Modal */}
+      {enlargedLogo && (
+        <div 
+          className="fixed inset-0 z-[110] bg-slate-950/85 backdrop-blur-md flex flex-col items-center justify-center p-3 sm:p-6 select-none transition-all duration-200"
+          id="enlarged_logo_lightbox"
+          onClick={() => setEnlargedLogo(null)}
+        >
+          {/* Lightbox Modal Window */}
+          <div 
+            className="bg-slate-900 border border-slate-700/80 rounded-2xl max-w-2xl w-full flex flex-col shadow-2xl overflow-hidden"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Modal Header */}
+            <div className="flex items-center justify-between px-4 py-3 bg-slate-900/95 border-b border-slate-800 gap-3">
+              <div className="flex items-center gap-2.5 min-w-0 flex-1">
+                <div className="w-8 h-8 rounded-xl bg-indigo-950/80 flex items-center justify-center text-indigo-400 shrink-0 border border-indigo-800/60">
+                  <ImageIcon className="w-4 h-4" />
+                </div>
+                <div className="min-w-0">
+                  <h3 className="text-xs sm:text-sm font-bold text-white truncate flex items-center gap-1.5">
+                    {enlargedLogo.title || "电台高清台标"}
+                    <span className="text-[10px] text-indigo-300 font-semibold bg-indigo-950 border border-indigo-700 px-1.5 py-0.5 rounded">高清台标</span>
+                  </h3>
+                  {enlargedLogo.subtitle && (
+                    <p className="text-[10px] text-slate-400 truncate mt-0.5">{enlargedLogo.subtitle}</p>
+                  )}
+                </div>
+              </div>
+
+              {/* Header Actions */}
+              <div className="flex items-center gap-1.5 shrink-0">
+                <button
+                  type="button"
+                  onClick={() => {
+                    navigator.clipboard.writeText(enlargedLogo.url);
+                    showFeedback("success", "台标图片地址已复制！");
+                  }}
+                  className="px-2.5 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white rounded-xl text-xs font-semibold flex items-center gap-1 transition cursor-pointer border border-slate-700 active:scale-95"
+                  title="复制图片链接"
+                >
+                  <Copy className="w-3.5 h-3.5" />
+                  <span className="hidden sm:inline text-[11px]">复制链接</span>
+                </button>
+                <a
+                  href={enlargedLogo.url}
+                  target="_blank"
+                  rel="noreferrer noopener"
+                  className="px-2.5 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white rounded-xl text-xs font-semibold flex items-center gap-1 transition cursor-pointer border border-slate-700 active:scale-95"
+                  title="在新窗口查看原图"
+                >
+                  <ExternalLink className="w-3.5 h-3.5" />
+                  <span className="hidden sm:inline text-[11px]">原图</span>
+                </a>
+                <button
+                  type="button"
+                  onClick={() => setEnlargedLogo(null)}
+                  className="w-8 h-8 flex items-center justify-center rounded-xl bg-slate-800 hover:bg-rose-950/80 text-slate-400 hover:text-rose-300 border border-slate-700 transition cursor-pointer active:scale-95"
+                  title="关闭 (Esc)"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+            </div>
+
+            {/* Logo Viewer Stage */}
+            <div className="relative w-full h-72 sm:h-96 flex items-center justify-center overflow-hidden p-6 select-none">
+              {/* Configurable Canvas Background */}
+              <div className={`absolute inset-0 transition-colors duration-200 ${
+                logoBgMode === "checkered" 
+                  ? "bg-[linear-gradient(45deg,#1e293b_25%,transparent_25%),linear-gradient(-45deg,#1e293b_25%,transparent_25%),linear-gradient(45deg,transparent_75%,#1e293b_75%),linear-gradient(-45deg,transparent_75%,#1e293b_75%)] bg-[size:16px_16px] bg-[position:0_0,0_8px,8px_-8px,-8px_0px] bg-slate-950"
+                  : logoBgMode === "dark" 
+                    ? "bg-slate-950" 
+                    : "bg-white"
+              }`} />
+
+              {/* Centered Scalable Logo */}
+              <div className="relative z-10 flex items-center justify-center w-full h-full max-w-full max-h-full">
+                <img
+                  src={enlargedLogo.url}
+                  alt={enlargedLogo.title}
+                  referrerPolicy="no-referrer"
+                  style={{ transform: `scale(${logoZoomScale})` }}
+                  className="max-h-full max-w-full object-contain transition-transform duration-150 drop-shadow-md pointer-events-none"
+                  onError={(e) => {
+                    (e.target as HTMLImageElement).src = "https://images.unsplash.com/photo-1598257006458-087169a1f08d?auto=format&fit=crop&w=400&q=80";
+                  }}
+                />
+              </div>
+            </div>
+
+            {/* Bottom Controls Bar */}
+            <div className="px-4 py-3 bg-slate-900/95 border-t border-slate-800 flex flex-wrap items-center justify-between gap-2.5 text-xs">
+              {/* Background mode switcher */}
+              <div className="flex items-center gap-1 bg-slate-950 p-1 rounded-xl border border-slate-800">
+                <span className="text-[10px] font-bold text-slate-400 px-1.5 hidden sm:inline">背景:</span>
+                <button
+                  type="button"
+                  onClick={() => setLogoBgMode("checkered")}
+                  className={`px-2.5 py-1 rounded-lg text-[10.5px] font-bold transition flex items-center gap-1 cursor-pointer ${
+                    logoBgMode === "checkered" ? "bg-indigo-600 text-white shadow-xs" : "text-slate-400 hover:text-white"
+                  }`}
+                  title="透明度棋盘格背景 (便于观察带透明通道的浅色或深色台标)"
+                >
+                  <Grid className="w-3 h-3" />
+                  <span>棋盘格</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setLogoBgMode("dark")}
+                  className={`px-2.5 py-1 rounded-lg text-[10.5px] font-bold transition flex items-center gap-1 cursor-pointer ${
+                    logoBgMode === "dark" ? "bg-indigo-600 text-white shadow-xs" : "text-slate-400 hover:text-white"
+                  }`}
+                  title="深色背景"
+                >
+                  <Moon className="w-3 h-3" />
+                  <span>深色</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setLogoBgMode("light")}
+                  className={`px-2.5 py-1 rounded-lg text-[10.5px] font-bold transition flex items-center gap-1 cursor-pointer ${
+                    logoBgMode === "light" ? "bg-indigo-600 text-white shadow-xs" : "text-slate-400 hover:text-white"
+                  }`}
+                  title="浅色背景"
+                >
+                  <Sun className="w-3 h-3" />
+                  <span>浅色</span>
+                </button>
+              </div>
+
+              {/* Zoom Controls */}
+              <div className="flex items-center gap-1 bg-slate-950 p-1 rounded-xl border border-slate-800">
+                <button
+                  type="button"
+                  onClick={() => setLogoZoomScale(prev => Math.max(0.4, Number((prev - 0.25).toFixed(2))))}
+                  className="p-1.5 text-slate-400 hover:text-white hover:bg-slate-800 rounded-lg transition cursor-pointer"
+                  title="缩小"
+                >
+                  <ZoomOut className="w-3.5 h-3.5" />
+                </button>
+                <span className="text-[11px] font-mono text-slate-200 font-bold px-2 min-w-12 text-center">
+                  {Math.round(logoZoomScale * 100)}%
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setLogoZoomScale(prev => Math.min(3.5, Number((prev + 0.25).toFixed(2))))}
+                  className="p-1.5 text-slate-400 hover:text-white hover:bg-slate-800 rounded-lg transition cursor-pointer"
+                  title="放大"
+                >
+                  <ZoomIn className="w-3.5 h-3.5" />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setLogoZoomScale(1)}
+                  className="px-2.5 py-1 text-[10.5px] font-bold text-slate-400 hover:text-indigo-300 hover:bg-slate-800 rounded-lg transition cursor-pointer"
+                  title="重置缩放比例到 100%"
+                >
+                  100% 还原
+                </button>
+              </div>
             </div>
           </div>
         </div>
