@@ -213,27 +213,32 @@ export default function App() {
         body: JSON.stringify(job),
       });
       if (res.ok) {
-        alert("定时任务更新成功");
+        showFeedback("success", "定时任务设置已保存并生效");
         fetchCronJobs();
+      } else {
+        showFeedback("error", "更新定时任务设置失败");
       }
     } catch (e) {
       console.error(e);
-      alert("更新失败");
+      showFeedback("error", "更新定时任务设置通信异常");
     }
   };
 
   const runCronJobManual = async (jobId: string) => {
     try {
-      alert("已触发执行...");
+      showFeedback("info", "已触发定时任务，正在后台启动...");
       const res = await fetch(`/api/cron-jobs/${jobId}/run`, { method: "POST" });
-      if (res.ok) {
-        alert("手动执行完成");
+      const data = await res.json();
+      if (res.ok && data.success) {
+        showFeedback("success", data.message || "手动触发执行成功");
         fetchCronJobs();
         if (selectedCronJob?.id === jobId) fetchCronLogs(jobId);
+      } else {
+        showFeedback("error", data.error || "执行出错");
       }
     } catch (e) {
       console.error(e);
-      alert("执行出错");
+      showFeedback("error", "执行网络请求出错");
     }
   };
 

@@ -1879,8 +1879,8 @@ function calculateNextRun(startTime: string, intervalMinutes: number, lastRunStr
     const [hours, minutes] = startTime.split(':').map(Number);
     nextRunTime.setHours(hours, minutes, 0, 0);
     
-    // If nextRunTime is in the past, add intervals until it's in the future
-    while (nextRunTime <= now) {
+    // Ensure nextRunTime is strictly in the future (at least 5 seconds ahead of now)
+    while (nextRunTime.getTime() <= now.getTime() + 5000) {
       if (intervalMinutes && intervalMinutes > 0) {
         nextRunTime.setTime(nextRunTime.getTime() + intervalMinutes * 60 * 1000);
       } else {
@@ -1890,7 +1890,7 @@ function calculateNextRun(startTime: string, intervalMinutes: number, lastRunStr
   } else if (intervalMinutes && intervalMinutes > 0) {
     if (lastRunStr) {
       nextRunTime = new Date(new Date(lastRunStr).getTime() + intervalMinutes * 60 * 1000);
-      if (nextRunTime <= now) {
+      if (nextRunTime.getTime() <= now.getTime() + 5000) {
          nextRunTime = new Date(now.getTime() + intervalMinutes * 60 * 1000);
       }
     } else {
@@ -1903,9 +1903,22 @@ function calculateNextRun(startTime: string, intervalMinutes: number, lastRunStr
   return nextRunTime.toISOString();
 }
 
+// In-memory mutex to ensure no cron job is triggered concurrently more than once
+const runningCronJobIds = new Set<string>();
+
 async function runCronJob(job: any) {
+  if (runningCronJobIds.has(job.id)) {
+    console.warn(`[Cron Scheduler] Job [${job.name || job.id}] is already running in background, skipping duplicate invocation.`);
+    return;
+  }
+
+  runningCronJobIds.add(job.id);
   const nowStr = new Date().toISOString();
-  db.prepare("UPDATE cron_jobs SET lastRun = ? WHERE id = ?").run(nowStr, job.id);
+  
+  // IMMEDIATELY calculate and advance nextRun before long-running async tasks,
+  // preventing the 1-minute interval scheduler from double-triggering the same job!
+  const nextRun = calculateNextRun(job.startTime, job.intervalMinutes, nowStr);
+  db.prepare("UPDATE cron_jobs SET lastRun = ?, nextRun = ? WHERE id = ?").run(nowStr, nextRun, job.id);
   
   const insertLog = db.prepare("INSERT INTO cron_logs (id, jobId, runAt, status, message) VALUES (?, ?, ?, ?, ?)");
   const logId = Math.random().toString(36).substring(2, 10);
@@ -1919,7 +1932,7 @@ async function runCronJob(job: any) {
         if (success) successCount++;
       }
       insertLog.run(logId, job.id, nowStr, "success", `成功同步 ${successCount}/${activeSources.length} 个 EPG 源`);
-        } else if (job.id === "job_github_import") {
+    } else if (job.id === "job_github_import") {
       let successCount = 0;
       const activeConfigs = syncConfigs.filter((c) => !c.disabled);
       for (const config of activeConfigs) {
@@ -1940,10 +1953,10 @@ async function runCronJob(job: any) {
       });
       if (targetSources.length > 0) {
         if (testStatus.status === "running") {
-           insertLog.run(logId, job.id, nowStr, "failed", "系统当前已有正在运行的批量测速任务，本次跳过");
+          insertLog.run(logId, job.id, nowStr, "success", `检测任务已在前台运行中，已自动合并 (${targetSources.length} 条线路)`);
         } else {
-           await runConcurrentTest(targetSources, 16);
-           insertLog.run(logId, job.id, nowStr, "success", `成功检测了 ${targetSources.length} 个直播源线路`);
+          await runConcurrentTest(targetSources, 16);
+          insertLog.run(logId, job.id, nowStr, "success", `成功检测了 ${targetSources.length} 个直播源线路`);
         }
       } else {
         insertLog.run(logId, job.id, nowStr, "success", "没有发现任何直播源可供检测");
@@ -1981,31 +1994,45 @@ async function runCronJob(job: any) {
       insertLog.run(logId, job.id, nowStr, "failed", "未知的定时任务 ID");
     }
   } catch (err: any) {
+    console.error(`[Cron Job Error] ${job.name || job.id}:`, err);
     insertLog.run(logId, job.id, nowStr, "failed", err.message || "执行失败");
+  } finally {
+    // Release job lock
+    runningCronJobIds.delete(job.id);
   }
-  
-  // Update nextRun
-  const nextRun = calculateNextRun(job.startTime, job.intervalMinutes, nowStr);
-  db.prepare("UPDATE cron_jobs SET nextRun = ? WHERE id = ?").run(nextRun, job.id);
 }
 
 // Background Cron-like Scheduler to perform Scheduled Sync
+let isSchedulerTicking = false;
 setInterval(async () => {
-  const now = new Date();
-  const nowStr = now.toISOString();
-  
-  // Periodically check and perform daily backups to prevent accidental loss
-  checkAndPerformDailyBackup();
+  if (isSchedulerTicking) return;
+  isSchedulerTicking = true;
 
-  // Run new cron jobs
-  const jobs = db.prepare("SELECT * FROM cron_jobs WHERE active = 1").all() as any[];
-  for (const job of jobs) {
-    if (!job.nextRun || new Date(job.nextRun) <= now) {
-      console.log(`Starting scheduled cron job: ${job.name}`);
-      await runCronJob(job);
+  try {
+    const now = new Date();
+    
+    // Periodically check and perform daily backups to prevent accidental loss
+    checkAndPerformDailyBackup();
+
+    // Run active cron jobs that reached their nextRun timestamp
+    const jobs = db.prepare("SELECT * FROM cron_jobs WHERE active = 1").all() as any[];
+    for (const job of jobs) {
+      if (runningCronJobIds.has(job.id)) {
+        continue;
+      }
+      if (!job.nextRun || new Date(job.nextRun) <= now) {
+        console.log(`[Cron Scheduler] Triggering scheduled cron job: ${job.name}`);
+        // Run in background without blocking scheduler loop
+        runCronJob(job).catch((err) => {
+          console.error(`[Cron Scheduler Execution Error]`, err);
+        });
+      }
     }
+  } catch (e: any) {
+    console.error("[Cron Scheduler Error]", e.message);
+  } finally {
+    isSchedulerTicking = false;
   }
-
 }, 60 * 1000); // Check tasks every minute
 
 
@@ -2058,9 +2085,12 @@ async function startServer() {
       const job = db.prepare("SELECT * FROM cron_jobs WHERE id = ?").get(id) as any;
       if (!job) return res.status(404).json({ error: "Job not found" });
       
-      // Run async, don't wait for completion to send response if it takes too long, but we can wait for simple
-      await runCronJob(job);
-      res.json({ success: true, message: "手动触发执行成功" });
+      if (runningCronJobIds.has(id)) {
+        return res.json({ success: true, message: "该定时任务已在后台执行中，请稍候刷新日志" });
+      }
+
+      runCronJob(job).catch(e => console.error("[Manual Cron Run Error]", e));
+      res.json({ success: true, message: "已在后台启动执行，请稍候查看日志" });
     } catch (err: any) {
       res.status(500).json({ error: err.message || err });
     }
