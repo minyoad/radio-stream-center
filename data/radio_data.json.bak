@@ -1,0 +1,132 @@
+{
+  "tags": [
+    {
+      "id": "g_yangshi",
+      "name": "央视频道"
+    },
+    {
+      "id": "g_weishi",
+      "name": "卫视频道"
+    },
+    {
+      "id": "g_local",
+      "name": "地方频道"
+    },
+    {
+      "id": "g_other",
+      "name": "其它频道"
+    }
+  ],
+  "groups": [
+    {
+      "id": "g_yangshi",
+      "name": "央视频道"
+    },
+    {
+      "id": "g_weishi",
+      "name": "卫视频道"
+    },
+    {
+      "id": "g_local",
+      "name": "地方频道"
+    },
+    {
+      "id": "g_other",
+      "name": "其它频道"
+    }
+  ],
+  "channels": [],
+  "syncConfigs": [
+    {
+      "id": "sc-1",
+      "name": "APTV 广播电台全集 (GitHub)",
+      "url": "https://raw.githubusercontent.com/Kimentanm/aptv/master/m3u/radio.m3u",
+      "type": "m3u",
+      "autoSync": true,
+      "syncInterval": 12,
+      "status": "never",
+      "description": "APTV 社区维护的海量国内外广播电台流媒体源集合",
+      "category": "海量全集"
+    },
+    {
+      "id": "sc-fanmingming",
+      "name": "Fanmingming 全国广播电台 (GitHub)",
+      "url": "https://raw.githubusercontent.com/fanmingming/live/main/radio/m3u/index.m3u",
+      "type": "m3u",
+      "autoSync": true,
+      "syncInterval": 12,
+      "status": "never",
+      "description": "全国各省市综合广播、交通、音乐电台，自带官方高清台标与规范分类",
+      "category": "全国综合 / 省市广播"
+    },
+    {
+      "id": "sc-yuechan",
+      "name": "YueChan 央广与省市精选电台 (GitHub)",
+      "url": "https://raw.githubusercontent.com/YueChan/Live/main/Radio.m3u",
+      "type": "m3u",
+      "autoSync": true,
+      "syncInterval": 12,
+      "status": "never",
+      "description": "精选中国之声、经济之声、音乐之声及各省核心电台高可用线路",
+      "category": "央广 / 核心频道"
+    },
+    {
+      "id": "sc-huangsuming",
+      "name": "HuangSuMing 总台与地方广播 (GitHub)",
+      "url": "https://raw.githubusercontent.com/huangsuming/iptv/main/list/radio.txt",
+      "type": "m3u",
+      "autoSync": true,
+      "syncInterval": 12,
+      "status": "never",
+      "description": "中央人民广播电台总台频道与全国各主要省市地方广播电台汇编",
+      "category": "总台 / 地方广播"
+    },
+    {
+      "id": "sc-kaigecai",
+      "name": "Kaige-Cai 流行音乐网络电台 (GitHub)",
+      "url": "https://raw.githubusercontent.com/kaige-cai/live/main/radio.m3u",
+      "type": "m3u",
+      "autoSync": true,
+      "syncInterval": 12,
+      "status": "never",
+      "description": "包含华语流行、亚洲流行、欧美潮流与经典音乐网络电台",
+      "category": "流行音乐 / 网络电台"
+    },
+    {
+      "id": "sc-bbc-uk",
+      "name": "Free-TV 英国 BBC 广播精选 (GitHub)",
+      "url": "https://raw.githubusercontent.com/Free-TV/IPTV/master/playlists/playlist_uk.m3u8",
+      "type": "m3u",
+      "autoSync": true,
+      "syncInterval": 24,
+      "status": "never",
+      "description": "BBC Radio 1/2/3/4/6 Music 等 320kbps 高音质国际广播",
+      "category": "国际广播 / 经典"
+    }
+  ],
+  "epgSources": [
+    {
+      "id": "epg_fanmingming",
+      "name": "Fanmingming 高速公开 EPG XML 源",
+      "url": "https://live.fanmingming.com/e.xml",
+      "active": true,
+      "status": "never"
+    },
+    {
+      "id": "epg_51zmt",
+      "name": "51zmt 经典公开 EPG XML 源",
+      "url": "http://epg.51zmt.top:11111/e.xml",
+      "active": true,
+      "status": "never"
+    }
+  ],
+  "adminPassword": "",
+  "githubProxy": "",
+  "backupMeta": {
+    "tag": "测试压缩快照",
+    "createdAt": "2026-09-30T07:38:41.629Z",
+    "type": "manual",
+    "compressed": true,
+    "version": "2.0"
+  }
+}

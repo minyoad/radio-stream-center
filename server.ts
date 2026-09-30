@@ -995,8 +995,20 @@ function checkAndPerformDailyBackup() {
           epgSources,
           adminPassword,
           githubProxy,
+          backupMeta: {
+            tag: "每日自动化快照",
+            createdAt: new Date().toISOString(),
+            type: "auto",
+            compressed: true
+          }
         };
+        const rawJsonBuf = Buffer.from(JSON.stringify(backupJson, null, 2), "utf-8");
+        const compressedBuf = zlib.gzipSync(rawJsonBuf, { level: 9 });
         fs.writeFileSync(backupJsonPath, JSON.stringify(backupJson, null, 2), "utf-8");
+        
+        // Also save a gzip compressed version for compact storage
+        const backupGzPath = path.join(DATA_DIR, `radio_data_backup_${dateStr}.json.gz`);
+        fs.writeFileSync(backupGzPath, compressedBuf);
       }
       
       cleanOldBackups();
@@ -1010,11 +1022,12 @@ function cleanOldBackups() {
   try {
     const files = fs.readdirSync(DATA_DIR);
     const backupFiles = files
-      .filter((f) => (f.startsWith("radio_data_backup_") || f.startsWith("radio_data_sqlite_backup_")) && (f.endsWith(".json") || f.endsWith(".db")))
+      .filter((f) => (f.startsWith("radio_data_backup_") || f.startsWith("radio_data_sqlite_backup_")) && 
+                     (f.endsWith(".json") || f.endsWith(".json.gz") || f.endsWith(".gz") || f.endsWith(".db") || f.endsWith(".db.gz")))
       .sort(); // Sorting list ascends alphabetically
       
-    if (backupFiles.length > 30) {
-      const extraBackups = backupFiles.slice(0, backupFiles.length - 30);
+    if (backupFiles.length > 50) {
+      const extraBackups = backupFiles.slice(0, backupFiles.length - 50);
       for (const fileToDelete of extraBackups) {
         fs.unlinkSync(path.join(DATA_DIR, fileToDelete));
         console.log(`[Backup] Deleted old backup: ${fileToDelete}`);
@@ -1939,7 +1952,7 @@ async function runCronJob(job: any) {
       const nowD = new Date();
       const pad = (n: number) => String(n).padStart(2, "0");
       const timestamp = `${nowD.getFullYear()}${pad(nowD.getMonth() + 1)}${pad(nowD.getDate())}_${pad(nowD.getHours())}${pad(nowD.getMinutes())}${pad(nowD.getSeconds())}`;
-      const filename = `radio_data_backup_auto_${timestamp}.json`;
+      const filename = `radio_data_backup_auto_${timestamp}.json.gz`;
       
       const backupContent = {
         tags,
@@ -1947,19 +1960,23 @@ async function runCronJob(job: any) {
         channels,
         syncConfigs,
         epgSources,
-        metadata: {
-          timestamp: nowD.toISOString(),
-          channelCount: channels.length,
-          groupCount: tags.length
+        adminPassword,
+        githubProxy,
+        backupMeta: {
+          tag: "定时任务自动备份",
+          createdAt: nowD.toISOString(),
+          type: "auto",
+          compressed: true
         }
       };
       
-      const fsBackup = require('fs');
-      const pathBackup = require('path');
-      const filePath = pathBackup.join(DATA_DIR, filename);
-      fsBackup.writeFileSync(filePath, JSON.stringify(backupContent, null, 2), "utf-8");
+      const filePath = path.join(DATA_DIR, filename);
+      const rawJson = Buffer.from(JSON.stringify(backupContent, null, 2), "utf-8");
+      const compressedGz = zlib.gzipSync(rawJson, { level: 9 });
+      fs.writeFileSync(filePath, compressedGz);
       
-      insertLog.run(logId, job.id, nowStr, "success", `成功创建系统自动硬备份: ${filename}`);
+      cleanOldBackups();
+      insertLog.run(logId, job.id, nowStr, "success", `成功创建系统自动压缩备份: ${filename} (原 ${(rawJson.length / 1024).toFixed(1)} KB -> 压缩后 ${(compressedGz.length / 1024).toFixed(1)} KB)`);
     } else {
       insertLog.run(logId, job.id, nowStr, "failed", "未知的定时任务 ID");
     }
@@ -5227,7 +5244,8 @@ ${JSON.stringify(scoredList.map(c => ({ epgId: c.epgId, names: c.displayNames, s
       }
       const files = fs.readdirSync(DATA_DIR);
       const backupFiles = files
-        .filter((f) => f.startsWith("radio_data_backup_") && f.endsWith(".json"))
+        .filter((f) => (f.startsWith("radio_data_backup_") || f.startsWith("radio_data_sqlite_backup_")) && 
+                       (f.endsWith(".json") || f.endsWith(".json.gz") || f.endsWith(".gz") || f.endsWith(".db") || f.endsWith(".db.gz")))
         .sort()
         .reverse(); // Newest first
       
@@ -5235,33 +5253,62 @@ ${JSON.stringify(scoredList.map(c => ({ epgId: c.epgId, names: c.displayNames, s
         const filePath = path.join(DATA_DIR, filename);
         const stat = fs.statSync(filePath);
         let size = stat.size;
+        let uncompressedSize = stat.size;
         let channelCount = 0;
         let groupCount = 0;
         let tag = "自动备份";
         let isManual = false;
+        let isCompressed = filename.endsWith(".gz") || filename.endsWith(".json.gz") || filename.endsWith(".db.gz");
+        let format = filename.endsWith(".db") || filename.endsWith(".db.gz") ? "sqlite" : (isCompressed ? "gzip" : "json");
         
         if (filename.includes("_manual_") || filename.includes("_manual")) {
           isManual = true;
           tag = "手动备份";
+        } else if (filename.includes("_before_restore_")) {
+          tag = "恢复前自动应急快照";
+        } else if (filename.includes("_auto_")) {
+          tag = "定时自动化备份";
         }
         
         try {
-          const content = fs.readFileSync(filePath, "utf-8");
-          const parsed = JSON.parse(content);
-          channelCount = parsed.channels ? parsed.channels.length : 0;
-          groupCount = parsed.groups ? parsed.groups.length : 0;
-          if (parsed.backupMeta && parsed.backupMeta.tag) {
-            tag = parsed.backupMeta.tag;
-            isManual = true;
+          if (format !== "sqlite") {
+            const fileBuf = fs.readFileSync(filePath);
+            let contentStr = "";
+            if (fileBuf.length >= 2 && fileBuf[0] === 0x1f && fileBuf[1] === 0x8b) {
+              isCompressed = true;
+              format = "gzip";
+              const decompressed = zlib.gunzipSync(fileBuf);
+              uncompressedSize = decompressed.length;
+              contentStr = decompressed.toString("utf-8");
+            } else {
+              contentStr = fileBuf.toString("utf-8");
+              uncompressedSize = fileBuf.length;
+            }
+            
+            const parsed = JSON.parse(contentStr);
+            channelCount = parsed.channels ? parsed.channels.length : 0;
+            groupCount = (parsed.groups || parsed.tags) ? (parsed.groups || parsed.tags).length : 0;
+            if (parsed.backupMeta && parsed.backupMeta.tag) {
+              tag = parsed.backupMeta.tag;
+              if (parsed.backupMeta.type === "manual") isManual = true;
+            }
           }
         } catch (e) {
-          // Ignored
+          // Ignored if parsing failed or binary sqlite
         }
+
+        const compressionRatio = isCompressed && uncompressedSize > 0 && uncompressedSize > size
+          ? Math.round((1 - size / uncompressedSize) * 100)
+          : 0;
         
         return {
           filename,
           createdAt: stat.mtime || stat.birthtime,
           size,
+          uncompressedSize,
+          isCompressed,
+          compressionRatio,
+          format,
           type: isManual ? "manual" : "auto",
           tag,
           channelCount,
@@ -5277,13 +5324,14 @@ ${JSON.stringify(scoredList.map(c => ({ epgId: c.epgId, names: c.displayNames, s
 
   app.post("/api/backups", (req, res) => {
     try {
-      const { tag } = req.body;
+      const { tag, compress = true } = req.body;
       const now = new Date();
       const pad = (n: number) => String(n).padStart(2, "0");
       const timestamp = `${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}_${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}`;
       
-      const safeTag = tag ? tag.replace(/[^a-zA-Z0-9\u4e00-\u9fa5_-]/g, "").substring(0, 20) : "手动备份";
-      const filename = `radio_data_backup_manual_${timestamp}.json`;
+      const safeTag = tag ? tag.replace(/[^a-zA-Z0-9\u4e00-\u9fa5_-]/g, "").substring(0, 25) : "手动备份";
+      const isGzip = compress !== false;
+      const filename = `radio_data_backup_manual_${timestamp}${isGzip ? ".json.gz" : ".json"}`;
       const filePath = path.join(DATA_DIR, filename);
       
       const backupContent = {
@@ -5291,15 +5339,50 @@ ${JSON.stringify(scoredList.map(c => ({ epgId: c.epgId, names: c.displayNames, s
         groups: tags,
         channels,
         syncConfigs,
+        epgSources,
+        adminPassword,
+        githubProxy,
         backupMeta: {
           tag: safeTag,
           createdAt: now.toISOString(),
-          type: "manual"
+          type: "manual",
+          compressed: isGzip,
+          version: "2.0"
         }
       };
       
-      fs.writeFileSync(filePath, JSON.stringify(backupContent, null, 2), "utf-8");
-      res.json({ success: true, message: "备份已成功创建", filename, tag: safeTag });
+      const jsonStr = JSON.stringify(backupContent, null, 2);
+      const rawBuffer = Buffer.from(jsonStr, "utf-8");
+      
+      if (isGzip) {
+        const compressedBuffer = zlib.gzipSync(rawBuffer, { level: 9 });
+        fs.writeFileSync(filePath, compressedBuffer);
+        const ratio = Math.round((1 - compressedBuffer.length / rawBuffer.length) * 100);
+        cleanOldBackups();
+        res.json({ 
+          success: true, 
+          message: `Gzip 压缩备份创建成功！体积缩减 ${ratio}%`, 
+          filename, 
+          tag: safeTag,
+          isCompressed: true,
+          originalSize: rawBuffer.length,
+          compressedSize: compressedBuffer.length,
+          compressionRatio: ratio
+        });
+      } else {
+        fs.writeFileSync(filePath, jsonStr, "utf-8");
+        cleanOldBackups();
+        res.json({ 
+          success: true, 
+          message: "标准 JSON 备份已成功创建", 
+          filename, 
+          tag: safeTag,
+          isCompressed: false,
+          originalSize: rawBuffer.length,
+          compressedSize: rawBuffer.length,
+          compressionRatio: 0
+        });
+      }
     } catch (err: any) {
       res.status(500).json({ error: "创建备份失败: " + err.message });
     }
@@ -5307,10 +5390,10 @@ ${JSON.stringify(scoredList.map(c => ({ epgId: c.epgId, names: c.displayNames, s
 
   app.post("/api/backups/restore", (req, res) => {
     try {
-      const { filename, content } = req.body;
+      const { filename, content, isBase64 } = req.body;
       
-      // Save current database as prior backup to prevent accidental loss
-      const autoBackupName = `radio_data_backup_before_restore_${Date.now()}.json`;
+      // Save current database as compressed safety prior backup to prevent accidental loss
+      const autoBackupName = `radio_data_backup_before_restore_${Date.now()}.json.gz`;
       try {
         const priorBackupJson = {
           tags,
@@ -5320,8 +5403,16 @@ ${JSON.stringify(scoredList.map(c => ({ epgId: c.epgId, names: c.displayNames, s
           epgSources,
           adminPassword,
           githubProxy,
+          backupMeta: {
+            tag: "恢复前自动应急快照",
+            createdAt: new Date().toISOString(),
+            type: "auto",
+            compressed: true
+          }
         };
-        fs.writeFileSync(path.join(DATA_DIR, autoBackupName), JSON.stringify(priorBackupJson, null, 2), "utf-8");
+        const priorBuf = Buffer.from(JSON.stringify(priorBackupJson, null, 2), "utf-8");
+        const priorGz = zlib.gzipSync(priorBuf, { level: 9 });
+        fs.writeFileSync(path.join(DATA_DIR, autoBackupName), priorGz);
       } catch (backupErr) {
         console.error("[Restore Backup] Failed to write safety prior backup:", backupErr);
       }
@@ -5329,22 +5420,36 @@ ${JSON.stringify(scoredList.map(c => ({ epgId: c.epgId, names: c.displayNames, s
       if (content) {
         let parsed: any;
         try {
-          parsed = JSON.parse(content);
-        } catch (e) {
-          return res.status(400).json({ error: "备份文件JSON解析失败，请检查文件内容" });
+          if (isBase64 || content.startsWith("H4sI") || content.startsWith("data:application/")) {
+            const rawBase64 = content.includes(",") ? content.split(",")[1] : content;
+            const buf = Buffer.from(rawBase64, "base64");
+            if (buf.length >= 2 && buf[0] === 0x1f && buf[1] === 0x8b) {
+              const decompressed = zlib.gunzipSync(buf);
+              parsed = JSON.parse(decompressed.toString("utf-8"));
+            } else {
+              parsed = JSON.parse(buf.toString("utf-8"));
+            }
+          } else {
+            parsed = JSON.parse(content);
+          }
+        } catch (e: any) {
+          return res.status(400).json({ error: "备份文件解析失败，请确保格式为合法的 JSON 或 Gzip 压缩快照包: " + e.message });
         }
 
-        if (!parsed.channels && !parsed.groups) {
-          return res.status(400).json({ error: "备份文件格式不正确 (未检测到 channels 或 groups 根节点)" });
+        if (!parsed.channels && !parsed.groups && !parsed.tags) {
+          return res.status(400).json({ error: "备份文件格式不正确 (未检测到 channels、tags 或 groups 数据节点)" });
         }
         
         fs.writeFileSync(DATA_FILE, JSON.stringify(parsed, null, 2), "utf-8");
         loadData();
-        return res.json({ success: true, message: "手动导入备份恢复成功！原有数据已备份为备份文件：" + autoBackupName });
+        return res.json({ 
+          success: true, 
+          message: `导入备份恢复成功！已恢复 ${parsed.channels?.length || 0} 个频道。原有数据已暂存为压缩应急快照：${autoBackupName}` 
+        });
       }
       
       if (!filename) {
-        return res.status(400).json({ error: "参数错误: filename 或者是 JSON 备份内容 (content) 不能为空" });
+        return res.status(400).json({ error: "参数错误: filename 或者是 JSON/Gzip 备份内容 (content) 不能为空" });
       }
       
       const safeFilename = path.basename(filename);
@@ -5352,10 +5457,31 @@ ${JSON.stringify(scoredList.map(c => ({ epgId: c.epgId, names: c.displayNames, s
       if (!fs.existsSync(filePath)) {
         return res.status(404).json({ error: "未找到指定的备份文件: " + safeFilename });
       }
-      
-      fs.copyFileSync(filePath, DATA_FILE);
+
+      const fileBuf = fs.readFileSync(filePath);
+      let jsonPayload = "";
+      if ((fileBuf.length >= 2 && fileBuf[0] === 0x1f && fileBuf[1] === 0x8b) || safeFilename.endsWith(".gz")) {
+        try {
+          const decompressed = zlib.gunzipSync(fileBuf);
+          jsonPayload = decompressed.toString("utf-8");
+        } catch (gzErr: any) {
+          return res.status(400).json({ error: "Gzip 备份解压缩失败: " + gzErr.message });
+        }
+      } else {
+        jsonPayload = fileBuf.toString("utf-8");
+      }
+
+      const parsed = JSON.parse(jsonPayload);
+      if (!parsed.channels && !parsed.groups && !parsed.tags) {
+        return res.status(400).json({ error: "备份文件数据缺失关键节点" });
+      }
+
+      fs.writeFileSync(DATA_FILE, JSON.stringify(parsed, null, 2), "utf-8");
       loadData();
-      res.json({ success: true, message: "成功恢复到指定备份，数据已实时刷新！先前版本已自动备份为 " + autoBackupName });
+      res.json({ 
+        success: true, 
+        message: `成功恢复至备份 [${safeFilename}]，数据已实时刷新！先前版本已自动留存为应急快照：${autoBackupName}` 
+      });
     } catch (err: any) {
       res.status(500).json({ error: "恢复备份失败: " + err.message });
     }
@@ -5375,12 +5501,84 @@ ${JSON.stringify(scoredList.map(c => ({ epgId: c.epgId, names: c.displayNames, s
     }
   });
 
+  // Direct Live Database Export (Gzip or JSON)
+  app.get("/api/backups/export", (req, res) => {
+    try {
+      const compress = req.query.compress !== "false";
+      const now = new Date();
+      const pad = (n: number) => String(n).padStart(2, "0");
+      const dateStr = `${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}_${pad(now.getHours())}${pad(now.getMinutes())}`;
+      
+      const payload = {
+        tags,
+        groups: tags,
+        channels,
+        syncConfigs,
+        epgSources,
+        adminPassword,
+        githubProxy,
+        backupMeta: {
+          tag: "系统实时全量导出",
+          createdAt: now.toISOString(),
+          type: "export",
+          compressed: compress,
+          version: "2.0"
+        }
+      };
+
+      const jsonStr = JSON.stringify(payload, null, 2);
+      if (compress) {
+        const rawBuf = Buffer.from(jsonStr, "utf-8");
+        const gzBuf = zlib.gzipSync(rawBuf, { level: 9 });
+        const downloadName = `radio_full_backup_${dateStr}.json.gz`;
+        res.setHeader("Content-Type", "application/gzip");
+        res.setHeader("Content-Disposition", `attachment; filename="${downloadName}"`);
+        res.setHeader("Content-Length", gzBuf.length);
+        res.end(gzBuf);
+      } else {
+        const downloadName = `radio_full_backup_${dateStr}.json`;
+        res.setHeader("Content-Type", "application/json; charset=utf-8");
+        res.setHeader("Content-Disposition", `attachment; filename="${downloadName}"`);
+        res.send(jsonStr);
+      }
+    } catch (err: any) {
+      res.status(500).json({ error: "导出全量备份失败: " + err.message });
+    }
+  });
+
   app.get("/api/backups/download/:filename", (req, res) => {
     try {
       const filename = path.basename(req.params.filename);
       const filePath = path.join(DATA_DIR, filename);
       if (!fs.existsSync(filePath)) {
-        return res.status(440).send("File not found");
+        return res.status(404).send("File not found");
+      }
+      
+      const uncompressRequested = req.query.uncompress === "true";
+      const compressRequested = req.query.compress === "true";
+
+      if (uncompressRequested && (filename.endsWith(".gz") || filename.endsWith(".json.gz"))) {
+        const fileBuf = fs.readFileSync(filePath);
+        const decompressed = zlib.gunzipSync(fileBuf);
+        const outName = filename.replace(/\.gz$/, "");
+        res.setHeader("Content-Type", "application/json; charset=utf-8");
+        res.setHeader("Content-Disposition", `attachment; filename="${outName}"`);
+        return res.end(decompressed);
+      }
+
+      if (compressRequested && filename.endsWith(".json")) {
+        const fileBuf = fs.readFileSync(filePath);
+        const compressed = zlib.gzipSync(fileBuf, { level: 9 });
+        const outName = `${filename}.gz`;
+        res.setHeader("Content-Type", "application/gzip");
+        res.setHeader("Content-Disposition", `attachment; filename="${outName}"`);
+        return res.end(compressed);
+      }
+
+      if (filename.endsWith(".gz") || filename.endsWith(".json.gz")) {
+        res.setHeader("Content-Type", "application/gzip");
+      } else if (filename.endsWith(".json")) {
+        res.setHeader("Content-Type", "application/json; charset=utf-8");
       }
       res.download(filePath, filename);
     } catch (err: any) {

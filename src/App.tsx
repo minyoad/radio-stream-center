@@ -495,6 +495,7 @@ export default function App() {
   const [backups, setBackups] = useState<any[]>([]);
   const [backupLoading, setBackupLoading] = useState(false);
   const [manualBackupTag, setManualBackupTag] = useState("");
+  const [backupCompress, setBackupCompress] = useState(true);
 
   const fetchBackups = async () => {
     setBackupLoading(true);
@@ -519,11 +520,12 @@ export default function App() {
       const res = await fetch("/api/backups", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ tag: manualBackupTag })
+        body: JSON.stringify({ tag: manualBackupTag, compress: backupCompress })
       });
       const data = await res.json();
       if (res.ok && data.success) {
-        showFeedback("success", `备份已成功建立！(备注: ${data.tag})`);
+        const ratioText = data.isCompressed && data.compressionRatio ? ` [已节省 ${data.compressionRatio}% 空间]` : "";
+        showFeedback("success", `备份已成功建立！(备注: ${data.tag})${ratioText}`);
         setManualBackupTag("");
         fetchBackups();
       } else {
@@ -534,10 +536,10 @@ export default function App() {
     }
   };
 
-  const restoreBackup = async (filename: string) => {
+  const restoreBackup = async (filename: string, isCompressed?: boolean) => {
     triggerConfirm(
       "请确认覆盖当前全量数据？",
-      `您确定要将数据恢复至备份 [${filename}] 吗？恢复操作将完全覆盖现有的所有频道别名、播放线路、分组和自动同步任务，数据覆盖不可取消。当前版本系统已为您自动暂存一个紧急防丢包。`,
+      `您确定要将数据恢复至备份 [${filename}] 吗？${isCompressed ? "（系统将自动解压 Gzip 快照）" : ""}恢复操作将完全覆盖现有的所有频道别名、播放线路、分组和自动同步任务，数据覆盖不可取消。当前版本系统已为您自动暂存一个应急压缩防丢包。`,
       async () => {
         try {
           const res = await fetch("/api/backups/restore", {
@@ -587,48 +589,79 @@ export default function App() {
     const file = e.target.files?.[0];
     if (!file) return;
     
-    // Read the file content
-    const reader = new FileReader();
-    reader.onload = async (event) => {
-      try {
-        const textTask = event.target?.result as string;
-        // Verify JSON parseable
-        const parsed = JSON.parse(textTask);
-        if (!parsed.channels && !parsed.groups) {
-          showFeedback("error", "上传失败：检测到文件内不包含合法的 channels 或 groups 电台 数据节点");
-          return;
+    try {
+      const isGzFile = file.name.endsWith(".gz") || file.name.endsWith(".json.gz");
+      let parsed: any = null;
+      let rawContentToSend = "";
+      let isBase64 = false;
+
+      if (isGzFile) {
+        // Try browser decompression via DecompressionStream
+        try {
+          if (typeof DecompressionStream !== "undefined") {
+            const ds = new DecompressionStream("gzip");
+            const decompressedStream = file.stream().pipeThrough(ds);
+            const response = new Response(decompressedStream);
+            const decompressedText = await response.text();
+            parsed = JSON.parse(decompressedText);
+            rawContentToSend = decompressedText;
+          }
+        } catch (decompErr) {
+          console.warn("[Upload Backup] Client-side gunzip failed, fallback to base64 server decode:", decompErr);
         }
 
-        triggerConfirm(
-          "上传并还原本地备份？",
-          `您上传了本地外部备份 [${file.name}]。您确定要应用此备份覆盖当前系统数据库吗？当前数据将被完全覆写。系统在恢复前依然会为您暂存一份紧急恢复包。`,
-          async () => {
-            try {
-              const res = await fetch("/api/backups/restore", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ content: textTask })
-              });
-              const data = await res.json();
-              if (res.ok && data.success) {
-                showFeedback("success", data.message || "本地备份文件还原成功！");
-                await fetchData();
-                fetchBackups();
-              } else {
-                showFeedback("error", data.error || "加载本地备份失败");
-              }
-            } catch (err) {
-              showFeedback("error", "服务器还原本地文件通信异常");
-            }
+        // If client decompression wasn't available or failed, read as base64 for server-side gunzip
+        if (!parsed) {
+          const arrayBuf = await file.arrayBuffer();
+          const bytes = new Uint8Array(arrayBuf);
+          let binary = "";
+          for (let i = 0; i < bytes.byteLength; i++) {
+            binary += String.fromCharCode(bytes[i]);
           }
-        );
-      } catch (err) {
-        showFeedback("error", "解析 JSON 格式失败，请确保您上传的是合法的 json 备份文件");
+          rawContentToSend = btoa(binary);
+          isBase64 = true;
+        }
+      } else {
+        const textTask = await file.text();
+        parsed = JSON.parse(textTask);
+        rawContentToSend = textTask;
       }
-    };
-    reader.readAsText(file);
-    // Clear input so same file can be chosen again
-    e.target.value = "";
+
+      const channelCount = parsed?.channels?.length ?? "未知数量";
+      const groupCount = (parsed?.groups || parsed?.tags)?.length ?? "未知数量";
+
+      triggerConfirm(
+        "上传并还原本地备份？",
+        `您上传了本地备份文件 [${file.name}]${isGzFile ? "（Gzip 压缩快照包）" : ""}。\n${parsed ? `检测到其中包含 ${channelCount} 个电台频道、${groupCount} 个分组。` : ""}\n您确定要应用此备份覆盖当前系统数据库吗？当前数据将被完全覆写。系统在恢复前依然会为您暂存一份应急压缩防丢包。`,
+        async () => {
+          try {
+            const res = await fetch("/api/backups/restore", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ 
+                content: rawContentToSend,
+                isBase64
+              })
+            });
+            const data = await res.json();
+            if (res.ok && data.success) {
+              showFeedback("success", data.message || "本地备份文件还原成功！");
+              await fetchData();
+              fetchBackups();
+            } else {
+              showFeedback("error", data.error || "加载本地备份失败");
+            }
+          } catch (err) {
+            showFeedback("error", "服务器还原本地文件通信异常");
+          }
+        }
+      );
+    } catch (err: any) {
+      showFeedback("error", "解析备份文件失败，请确保您上传的是合法的 .json 或 .json.gz 压缩备份文件: " + err.message);
+    } finally {
+      // Clear input so same file can be chosen again
+      e.target.value = "";
+    }
   };
 
   useEffect(() => {
@@ -2898,57 +2931,105 @@ export default function App() {
               )}
 
               {channelSubTab === "channels" && (
-                <div className="space-y-6 animate-fade-in" id="groups_inner_channels_pane">
-                  {/* Filter tools and Header bar */}
-                  <div className="flex flex-col md:flex-row gap-4 justify-between" id="channel_filter_panel">
-                <div className="flex flex-1 flex-wrap gap-2.5">
-                  <div className="relative w-full sm:w-auto">
-                    <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
-                    <input 
-                      type="text"
-                      value={searchQuery}
-                      onChange={(e) => setSearchQuery(e.target.value)}
-                      placeholder="搜索频道、标签、别名..."
-                      className="pl-9 pr-4 py-2 border border-slate-200 rounded-xl text-xs bg-white w-full sm:w-56 focus:outline-none focus:border-indigo-500"
-                    />
-                  </div>
+                <div className="space-y-4 animate-fade-in" id="groups_inner_channels_pane">
+                  {/* Search and Action Toolbar */}
+                  <div className="flex flex-col md:flex-row gap-3 justify-between items-stretch md:items-center" id="channel_filter_panel">
+                    <div className="flex items-center gap-2 flex-1">
+                      <div className="relative flex-1 sm:max-w-md">
+                        <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
+                        <input 
+                          type="text"
+                          value={searchQuery}
+                          onChange={(e) => setSearchQuery(e.target.value)}
+                          placeholder="搜索频道名称、分组标签、别名、频率..."
+                          className="pl-9 pr-8 py-2 border border-slate-200 rounded-xl text-xs bg-white w-full focus:outline-none focus:border-indigo-500 shadow-2xs font-sans"
+                        />
+                        {searchQuery && (
+                          <button
+                            onClick={() => setSearchQuery("")}
+                            className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 p-0.5 rounded-full hover:bg-slate-100 text-xs font-bold"
+                            title="清空搜索"
+                          >
+                            ✕
+                          </button>
+                        )}
+                      </div>
+                      {searchQuery && (
+                        <span className="text-[11px] text-slate-500 font-semibold shrink-0">
+                          匹配 <span className="font-bold text-indigo-600">{filteredChannels.length}</span> 个
+                        </span>
+                      )}
+                    </div>
 
-                  {/* Category tag Selector pill */}
-                  <div className="flex items-center gap-1.5 bg-white border border-slate-200 rounded-xl px-2.5 py-1.5 overflow-x-auto no-scrollbar max-w-full" id="category_pills">
-                    <Filter className="w-3.5 h-3.5 text-slate-400 mr-1 shrink-0" />
-                    {getUniqueCategories().map((cat) => (
-                      <button
-                        key={cat}
-                        onClick={() => setSelectedCategory(cat)}
-                        className={`px-2.5 py-1 rounded-lg text-[11px] font-bold transition shrink-0 cursor-pointer ${
-                          selectedCategory === cat 
-                          ? "bg-blue-600 text-white shadow-xs" 
-                          : "text-slate-500 hover:bg-slate-50 hover:text-slate-800"
-                        }`}
+                    <div className="flex items-center gap-2 shrink-0">
+                      <button 
+                        onClick={cleanupInvalidSources}
+                        className="px-3 py-2 border border-rose-200 text-rose-600 hover:bg-rose-50 text-[11px] font-bold rounded-xl transition cursor-pointer flex items-center shadow-2xs"
                       >
-                        {cat === "all" ? "全部标签" : cat}
+                        <Trash2 className="w-3.5 h-3.5 mr-1" />
+                        清理失效源
                       </button>
-                    ))}
+                      <button 
+                        onClick={openChannelCreate}
+                        className="px-3.5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-[11px] font-bold rounded-xl shadow-md shadow-indigo-600/10 transition cursor-pointer flex items-center"
+                      >
+                        <Plus className="w-3.5 h-3.5 mr-1" />
+                        添加新频道
+                      </button>
+                    </div>
                   </div>
-                </div>
 
-                <div className="flex gap-2 w-full md:w-auto">
-                  <button 
-                    onClick={cleanupInvalidSources}
-                    className="px-3.5 py-2 border border-rose-200 text-rose-600 hover:bg-rose-50 text-[11px] font-bold rounded-xl transition cursor-pointer flex items-center"
-                  >
-                    <Trash2 className="w-3.5 h-3.5 mr-1" />
-                    清理失效源
-                  </button>
-                  <button 
-                    onClick={openChannelCreate}
-                    className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-[11px] font-bold rounded-xl shadow-md transition cursor-pointer flex items-center"
-                  >
-                    <Plus className="w-3.5 h-3.5 mr-1" />
-                    添加新频道
-                  </button>
-                </div>
-              </div>
+                  {/* Multi-line Wrapping Category Tag Selector */}
+                  <div className="bg-white border border-slate-200/90 rounded-2xl p-3 shadow-2xs space-y-2" id="category_pills_container">
+                    <div className="flex items-center justify-between flex-wrap gap-2 text-xs">
+                      <div className="flex items-center gap-1.5 font-bold text-slate-700">
+                        <Filter className="w-3.5 h-3.5 text-indigo-500" />
+                        <span>标签分类筛选</span>
+                        <span className="text-[10px] text-slate-400 font-normal">({tags.length} 个标签)</span>
+                      </div>
+                      {selectedCategory !== "all" && (
+                        <button
+                          onClick={() => setSelectedCategory("all")}
+                          className="text-[10px] text-indigo-600 hover:text-indigo-800 font-bold bg-indigo-50 hover:bg-indigo-100 px-2 py-0.5 rounded-lg transition cursor-pointer"
+                        >
+                          重置为全部
+                        </button>
+                      )}
+                    </div>
+
+                    <div className="flex flex-wrap items-center gap-1.5" id="category_pills">
+                      {getUniqueCategories().map((cat) => {
+                        const isSelected = selectedCategory === cat;
+                        const matchCount = cat === "all" 
+                          ? channels.length 
+                          : channels.filter(c => {
+                              const tagObj = tags.find(t => t.name === cat);
+                              return tagObj ? (c.tagIds || c.groupIds || []).includes(tagObj.id) : false;
+                            }).length;
+
+                        return (
+                          <button
+                            key={cat}
+                            onClick={() => setSelectedCategory(cat)}
+                            className={`px-2.5 py-1 rounded-xl text-[11px] font-bold transition flex items-center gap-1 cursor-pointer border ${
+                              isSelected 
+                                ? "bg-indigo-600 text-white border-indigo-600 shadow-xs" 
+                                : "bg-slate-50/80 text-slate-600 hover:bg-slate-100 hover:text-slate-900 border-slate-200/70"
+                            }`}
+                          >
+                            <span>{cat === "all" ? "全部频道" : cat}</span>
+                            <span className={`text-[10px] font-mono px-1.5 py-0.2 rounded-full ${
+                              isSelected 
+                                ? "bg-white/20 text-white" 
+                                : "bg-slate-200/70 text-slate-500"
+                            }`}>
+                              {matchCount}
+                            </span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
 
               {/* Dynamic split row grids layout */}
               <div className="grid grid-cols-1 lg:grid-cols-12 gap-6" id="channels_editor_grid">
@@ -3135,7 +3216,24 @@ export default function App() {
                                     {ch.description && (ch.frequency || ch.province || ch.city ? " | " : "") + ch.description}
                                   </p>
                                 )}
-                                <p className="text-[10px] text-slate-400 mt-0.5 truncate">
+                                
+                                {/* Wrapping Tag Pills on Channel Card */}
+                                <div className="flex flex-wrap items-center gap-1 mt-1">
+                                  {(ch.tagIds || ch.groupIds || []).map((gId) => {
+                                    const tName = tags.find(g => g.id === gId)?.name;
+                                    if (!tName) return null;
+                                    return (
+                                      <span key={gId} className="text-[9px] font-bold bg-blue-50 text-blue-700 px-1.5 py-0.2 rounded border border-blue-100/60 leading-tight">
+                                        {tName}
+                                      </span>
+                                    );
+                                  })}
+                                  {(!ch.tagIds || ch.tagIds.length === 0) && (!ch.groupIds || ch.groupIds.length === 0) && (
+                                    <span className="text-[9px] font-medium text-slate-400 bg-slate-50 px-1 rounded">未分类</span>
+                                  )}
+                                </div>
+
+                                <p className="text-[10px] text-slate-400 mt-1 truncate">
                                   EPG ID: <span className="font-mono text-[9px] text-slate-500 font-bold bg-slate-100 px-1 py-0.5 rounded">{ch.epgId}</span>
                                 </p>
                               </div>
@@ -3146,9 +3244,6 @@ export default function App() {
                               <span className="text-[10px] font-bold bg-slate-100 text-slate-600 px-2 py-0.5 rounded-full">
                                 {activeCount} / {ch.sources.length} <span className="hidden sm:inline">条有效</span>
                               </span>
-                              <span className="hidden sm:inline-block text-[10px] font-semibold bg-blue-50 text-blue-700 px-1.5 py-0.5 rounded max-w-28 truncate" title={(ch.tagIds || ch.groupIds || []).map(gId => tags.find(g => g.id === gId)?.name).filter(Boolean).join(", ")}>
-                                {(ch.tagIds || ch.groupIds || []).map(gId => tags.find(g => g.id === gId)?.name).filter(Boolean).join(", ") || "其它"}
-                              </span>
 
                               {/* Small Quick Action Panel */}
                               <div className="flex gap-1.5">
@@ -3157,16 +3252,18 @@ export default function App() {
                                     e.stopPropagation();
                                     openChannelEdit(ch);
                                   }}
-                                  className="p-1 hover:bg-slate-100 text-slate-500 hover:text-slate-800 rounded transition"
+                                  className="p-1 hover:bg-slate-100 text-slate-500 hover:text-slate-800 rounded transition cursor-pointer"
+                                  title="编辑频道"
                                 >
                                   <Edit2 className="w-3.5 h-3.5" />
                                 </button>
-                                <button
+                                <button 
                                   onClick={(e) => {
                                     e.stopPropagation();
                                     handleDeleteChannel(ch.id);
                                   }}
-                                  className="p-1 hover:bg-slate-100 text-red-500 hover:text-red-700 rounded transition"
+                                  className="p-1 hover:bg-slate-100 text-red-500 hover:text-red-700 rounded transition cursor-pointer"
+                                  title="删除频道"
                                 >
                                   <Trash2 className="w-3.5 h-3.5" />
                                 </button>
@@ -3218,14 +3315,25 @@ export default function App() {
                               <ZoomIn className="w-4 h-4 text-white drop-shadow-xs" />
                             </div>
                           </div>
-                          <div>
-                            <div className="flex items-center gap-2">
+                          <div className="space-y-1">
+                            <div className="flex flex-wrap items-center gap-2">
                               <h3 className="font-bold text-slate-800 text-sm leading-tight">{selectedChannel.name}</h3>
-                              <span className="bg-slate-100 text-[10px] text-slate-600 px-2 py-0.5 rounded">
-                                {(selectedChannel.tagIds || selectedChannel.groupIds || []).map(gId => tags.find(g => g.id === gId)?.name).filter(Boolean).join(", ") || "其它"}
-                              </span>
+                              <div className="flex flex-wrap items-center gap-1">
+                                {(selectedChannel.tagIds || selectedChannel.groupIds || []).map((gId) => {
+                                  const tagName = tags.find(g => g.id === gId)?.name;
+                                  if (!tagName) return null;
+                                  return (
+                                    <span key={gId} className="bg-indigo-50 text-indigo-700 border border-indigo-100/80 text-[10px] font-bold px-2 py-0.5 rounded-md">
+                                      {tagName}
+                                    </span>
+                                  );
+                                })}
+                                {(!selectedChannel.tagIds || selectedChannel.tagIds.length === 0) && (!selectedChannel.groupIds || selectedChannel.groupIds.length === 0) && (
+                                  <span className="bg-slate-100 text-[10px] text-slate-500 px-2 py-0.5 rounded">未分组</span>
+                                )}
+                              </div>
                             </div>
-                            <p className="text-[11px] text-slate-500 mt-1">
+                            <p className="text-[11px] text-slate-500">
                               别名(Aliases): <span className="font-mono bg-slate-50 px-1 rounded">{selectedChannel.alias.join(" / ") || "无"}</span>
                             </p>
                           </div>
@@ -5681,28 +5789,74 @@ export default function App() {
             <div className="space-y-8 animate-fade-in" id="tab_backup_view">
               
               {/* Header metadata intro */}
-              <div className="bg-blue-50/40 border border-blue-100 p-6 rounded-2xl space-y-2 text-xs text-blue-900" id="backup_header_info">
-                <h4 className="font-bold flex items-center">
-                  <Shield className="w-4 h-4 mr-2 text-blue-600" /> 物理级硬备份与一键防丢灾备系统
-                </h4>
-                <p className="leading-relaxed">
-                  本模块负责管理整站的物理数据库快照，支持手动创建、历史记录还原、一键下载。
-                  系统在执行任何还原操作前都会为您<b>自动留存当前的紧急备份包</b>，以保障在恢复冲突或误操作时的系统绝对安全。
+              <div className="bg-gradient-to-r from-blue-50/70 via-indigo-50/50 to-purple-50/60 border border-blue-100/80 p-6 rounded-2xl space-y-3 text-xs text-slate-700 shadow-xs" id="backup_header_info">
+                <div className="flex items-center justify-between flex-wrap gap-2">
+                  <h4 className="font-bold flex items-center text-sm text-blue-950">
+                    <Shield className="w-5 h-5 mr-2 text-blue-600 shrink-0" /> 全量系统备份与 Gzip 压缩灾备恢复中心
+                  </h4>
+                  <span className="inline-flex items-center px-2.5 py-1 rounded-full text-[10px] font-bold bg-indigo-100/80 text-indigo-700 border border-indigo-200">
+                    内置 Gzip 压缩引擎 • 节省 80%~90% 存储
+                  </span>
+                </div>
+                <p className="leading-relaxed text-slate-600">
+                  本模块提供物理级快照备份、支持 <b>Gzip 高倍率数据压缩 (.json.gz)</b> 与标准 JSON 格式。
+                  在执行任何历史版本还原或外部导入时，系统均会自动留存<b>应急压缩防丢包</b>，确保数据资产万无一失。
                 </p>
+
+                {/* Storage & Backup Summary Stats */}
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 pt-2">
+                  <div className="bg-white/80 backdrop-blur-xs p-3 rounded-xl border border-blue-100/60">
+                    <div className="text-[10px] font-semibold text-slate-400">备份快照总数</div>
+                    <div className="text-base font-bold text-slate-800 font-mono mt-0.5">{backups.length} <span className="text-[10px] font-normal text-slate-500">份</span></div>
+                  </div>
+                  <div className="bg-white/80 backdrop-blur-xs p-3 rounded-xl border border-blue-100/60">
+                    <div className="text-[10px] font-semibold text-slate-400">磁盘存储占用</div>
+                    <div className="text-base font-bold text-blue-700 font-mono mt-0.5">
+                      {(() => {
+                        const totalBytes = backups.reduce((sum, b) => sum + (b.size || 0), 0);
+                        return totalBytes < 1024 * 1024 
+                          ? `${(totalBytes / 1024).toFixed(1)} KB` 
+                          : `${(totalBytes / (1024 * 1024)).toFixed(2)} MB`;
+                      })()}
+                    </div>
+                  </div>
+                  <div className="bg-white/80 backdrop-blur-xs p-3 rounded-xl border border-blue-100/60">
+                    <div className="text-[10px] font-semibold text-slate-400">压缩节省空间</div>
+                    <div className="text-base font-bold text-emerald-600 font-mono mt-0.5">
+                      {(() => {
+                        const rawTotal = backups.reduce((sum, b) => sum + (b.uncompressedSize || b.size || 0), 0);
+                        const actualTotal = backups.reduce((sum, b) => sum + (b.size || 0), 0);
+                        const savedBytes = Math.max(0, rawTotal - actualTotal);
+                        const ratio = rawTotal > 0 ? Math.round((savedBytes / rawTotal) * 100) : 0;
+                        return ratio > 0 ? `-${ratio}% (${(savedBytes / 1024).toFixed(0)} KB)` : "0%";
+                      })()}
+                    </div>
+                  </div>
+                  <div className="bg-white/80 backdrop-blur-xs p-3 rounded-xl border border-blue-100/60">
+                    <div className="text-[10px] font-semibold text-slate-400">压缩备份占比</div>
+                    <div className="text-base font-bold text-purple-700 font-mono mt-0.5">
+                      {backups.length > 0 
+                        ? `${Math.round((backups.filter(b => b.isCompressed).length / backups.length) * 100)}%` 
+                        : "100%"}
+                    </div>
+                  </div>
+                </div>
               </div>
 
               <div className="grid grid-cols-1 lg:grid-cols-3 gap-8" id="backup_control_grid">
                 
                 {/* 1. List of Backups Panel (Col Span 2) */}
                 <div className="lg:col-span-2 bg-white p-6 rounded-2xl border border-slate-200 flex flex-col space-y-4" id="backups_list_card">
-                  <div className="flex justify-between items-center pb-2 border-b border-slate-100">
+                  <div className="flex justify-between items-center pb-2 border-b border-slate-100 flex-wrap gap-2">
                     <div>
-                      <h3 className="font-bold text-slate-800 text-sm">备份快照控制台</h3>
-                      <p className="text-[10px] text-slate-400">保留最近 30 天自动与所有手动创建的节点</p>
+                      <h3 className="font-bold text-slate-800 text-sm flex items-center gap-2">
+                        <Database className="w-4 h-4 text-blue-600" /> 备份快照控制台
+                      </h3>
+                      <p className="text-[10px] text-slate-400">支持还原、解压预览、下载 Gzip 压缩包或原生 JSON 快照</p>
                     </div>
                     <button 
                       onClick={fetchBackups}
-                      className="text-xs text-blue-600 hover:text-blue-800 flex items-center gap-1 font-bold bg-blue-50 px-2.5 py-1.5 rounded-lg transition"
+                      className="text-xs text-blue-600 hover:text-blue-800 flex items-center gap-1 font-bold bg-blue-50 hover:bg-blue-100 px-3 py-1.5 rounded-lg transition cursor-pointer"
                     >
                       <RefreshCw className={`w-3.5 h-3.5 ${backupLoading ? "animate-spin" : ""}`} />
                       刷新列表
@@ -5710,14 +5864,14 @@ export default function App() {
                   </div>
 
                   {backupLoading && backups.length === 0 ? (
-                    <div className="flex flex-col items-center justify-center py-12 text-slate-400 space-y-2">
+                    <div className="flex flex-col items-center justify-center py-16 text-slate-400 space-y-2">
                       <RefreshCw className="w-8 h-8 animate-spin text-blue-500" />
-                      <span className="text-xs font-semibold">正在扫描存储区备份镜像...</span>
+                      <span className="text-xs font-semibold">正在扫描存储区备份快照...</span>
                     </div>
                   ) : backups.length === 0 ? (
-                    <div className="text-center py-16 bg-slate-50/50 rounded-2xl border border-dashed border-slate-200">
+                    <div className="text-center py-16 bg-slate-50/50 rounded-2xl border border-dashed border-slate-200 space-y-2">
                       <Database className="w-10 h-10 mx-auto text-slate-300" />
-                      <p className="mt-2 text-xs font-semibold text-slate-500">尚无任何备份记录，请在右侧创建第一个手动备份</p>
+                      <p className="text-xs font-semibold text-slate-500">尚无任何备份记录，请在右侧创建首个 Gzip 压缩备份快照</p>
                     </div>
                   ) : (
                     <div className="overflow-x-auto">
@@ -5725,18 +5879,23 @@ export default function App() {
                         <thead>
                           <tr className="border-b border-slate-100 text-[10px] uppercase font-bold text-slate-400 tracking-wider">
                             <th className="py-3 px-2">备份名称 / 备注</th>
-                            <th className="py-3 px-2 hidden sm:table-cell">容量规格</th>
+                            <th className="py-3 px-2">存储规格 / 压缩</th>
+                            <th className="py-3 px-2 hidden sm:table-cell">频道数据量</th>
                             <th className="py-3 px-2 hidden md:table-cell">备份类型</th>
-                            <th className="py-3 px-2 hidden sm:table-cell">生成时间</th>
+                            <th className="py-3 px-2 hidden lg:table-cell">生成时间</th>
                             <th className="py-3 px-2 text-right">控制台操作</th>
                           </tr>
                         </thead>
                         <tbody className="divide-y divide-slate-100 text-xs text-slate-600">
                           {backups.map((back) => {
                             const isManual = back.type === "manual";
+                            const isAutoSafe = back.filename.includes("_before_restore_");
                             const formattedSize = back.size < 1024 
                               ? `${back.size} B` 
                               : `${(back.size / 1024).toFixed(1)} KB`;
+                            const formattedUncompressed = back.uncompressedSize && back.uncompressedSize > 0
+                              ? (back.uncompressedSize < 1024 ? `${back.uncompressedSize} B` : `${(back.uncompressedSize / 1024).toFixed(1)} KB`)
+                              : "";
                             const dateObj = new Date(back.createdAt);
                             const displayTime = isNaN(dateObj.getTime()) 
                               ? "未知时间" 
@@ -5750,38 +5909,62 @@ export default function App() {
                                 });
 
                             return (
-                              <tr key={back.filename} className="hover:bg-slate-50/40 transition">
+                              <tr key={back.filename} className="hover:bg-slate-50/50 transition">
                                 <td className="py-3 px-2">
-                                  <div className="font-semibold text-slate-800 truncate max-w-xs" title={back.filename}>
-                                    {back.tag}
+                                  <div className="font-semibold text-slate-800 truncate max-w-xs flex items-center gap-1.5" title={back.filename}>
+                                    <span>{back.tag}</span>
+                                    {back.isCompressed && (
+                                      <span className="inline-flex items-center px-1.5 py-0.2 rounded text-[9px] font-bold bg-purple-50 text-purple-700 border border-purple-200">
+                                        GZIP
+                                      </span>
+                                    )}
                                   </div>
                                   <div className="text-[10px] text-slate-400 font-mono truncate max-w-xs">
                                     {back.filename}
                                   </div>
                                 </td>
+                                <td className="py-3 px-2 font-mono">
+                                  <div className="flex items-center gap-1.5 flex-wrap">
+                                    <span className="text-[11px] font-bold text-slate-800">{formattedSize}</span>
+                                    {back.isCompressed && back.compressionRatio > 0 && (
+                                      <span className="text-[9px] font-bold text-emerald-600 bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-100">
+                                        ↓{back.compressionRatio}%
+                                      </span>
+                                    )}
+                                  </div>
+                                  {back.isCompressed && formattedUncompressed && (
+                                    <div className="text-[9px] text-slate-400">
+                                      原体积: {formattedUncompressed}
+                                    </div>
+                                  )}
+                                </td>
                                 <td className="py-3 px-2 font-mono hidden sm:table-cell">
-                                  <div className="text-[11px] font-bold text-slate-700">{formattedSize}</div>
+                                  <div className="text-[11px] font-semibold text-slate-700">
+                                    {back.channelCount} 频道
+                                  </div>
                                   <div className="text-[10px] text-slate-400">
-                                    {back.channelCount} 频道 ({back.groupCount} 分组)
+                                    {back.groupCount} 分组
                                   </div>
                                 </td>
                                 <td className="py-3 px-2 hidden md:table-cell">
                                   <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold ${
-                                    isManual
-                                      ? "bg-emerald-50 text-emerald-700 border border-emerald-100" 
-                                      : "bg-blue-50 text-blue-700 border border-blue-100"
+                                    isAutoSafe
+                                      ? "bg-amber-50 text-amber-700 border border-amber-200"
+                                      : isManual
+                                        ? "bg-emerald-50 text-emerald-700 border border-emerald-200" 
+                                        : "bg-blue-50 text-blue-700 border border-blue-200"
                                   }`}>
-                                    {isManual ? "手动硬备份" : "系统自动化"}
+                                    {isAutoSafe ? "应急防丢" : isManual ? "手动快照" : "自动化快照"}
                                   </span>
                                 </td>
-                                <td className="py-3 px-2 text-[11px] font-medium text-slate-500 hidden sm:table-cell">
+                                <td className="py-3 px-2 text-[10px] font-medium text-slate-500 hidden lg:table-cell font-mono">
                                   {displayTime}
                                 </td>
-                                <td className="py-3 px-2 text-right space-x-1">
+                                <td className="py-3 px-2 text-right space-x-1.5 whitespace-nowrap">
                                   <button
-                                    onClick={() => restoreBackup(back.filename)}
-                                    className="bg-blue-50 hover:bg-blue-100 text-blue-700 font-bold px-2.5 py-1.5 rounded-lg transition text-[11px] inline-flex items-center gap-1"
-                                    title="恢复数据"
+                                    onClick={() => restoreBackup(back.filename, back.isCompressed)}
+                                    className="bg-blue-50 hover:bg-blue-100 text-blue-700 font-bold px-2.5 py-1.5 rounded-lg transition text-[11px] inline-flex items-center gap-1 cursor-pointer"
+                                    title="将系统数据完全恢复到此备份快照"
                                   >
                                     <RefreshCw className="w-3 h-3" />
                                     还原
@@ -5789,15 +5972,15 @@ export default function App() {
                                   <button
                                     onClick={(e) => downloadApiFile(`/api/backups/download/${encodeURIComponent(back.filename)}`, back.filename, e)}
                                     className="bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold px-2.5 py-1.5 rounded-lg transition text-[11px] inline-flex items-center gap-1 cursor-pointer"
-                                    title="下载到本地"
+                                    title="下载原始备份文件"
                                   >
                                     <Download className="w-3 h-3" />
                                     下载
                                   </button>
                                   <button
                                     onClick={() => deleteBackup(back.filename)}
-                                    className="bg-rose-50 hover:bg-rose-100 text-rose-600 font-bold px-2.5 py-1.5 rounded-lg transition text-[11px]"
-                                    title="永久删除"
+                                    className="bg-rose-50 hover:bg-rose-100 text-rose-600 font-bold px-2 py-1.5 rounded-lg transition text-[11px] cursor-pointer"
+                                    title="永久删除此备份"
                                   >
                                     删除
                                   </button>
@@ -5820,7 +6003,10 @@ export default function App() {
                       <div className="w-8 h-8 rounded-lg bg-emerald-50 text-emerald-600 flex items-center justify-center">
                         <Plus className="w-4 h-4" />
                       </div>
-                      <h3 className="font-bold text-slate-800 text-sm">创建手动物理快照</h3>
+                      <div>
+                        <h3 className="font-bold text-slate-800 text-sm">创建手动物理快照</h3>
+                        <p className="text-[10px] text-slate-400">生成可随时还原的数据库快照</p>
+                      </div>
                     </div>
                     
                     <form onSubmit={createBackup} className="space-y-4 text-xs font-semibold text-slate-600">
@@ -5835,14 +6021,72 @@ export default function App() {
                           maxLength={30}
                         />
                       </div>
+
+                      {/* Compression toggle */}
+                      <div className="p-3 bg-purple-50/50 border border-purple-100 rounded-xl space-y-1.5">
+                        <label className="flex items-center justify-between cursor-pointer">
+                          <span className="font-bold text-purple-950 flex items-center gap-1.5">
+                            <Shield className="w-3.5 h-3.5 text-purple-600" />
+                            启用 Gzip 高效压缩
+                          </span>
+                          <input 
+                            type="checkbox"
+                            checked={backupCompress}
+                            onChange={(e) => setBackupCompress(e.target.checked)}
+                            className="w-4 h-4 text-purple-600 rounded cursor-pointer accent-purple-600"
+                          />
+                        </label>
+                        <p className="text-[10px] text-purple-700 font-normal leading-relaxed">
+                          {backupCompress ? "格式为 .json.gz，体积减少 80%~90%，还原时自动解压" : "生成未经压缩的原生 .json 文本文件"}
+                        </p>
+                      </div>
+
                       <button
                         type="submit"
                         disabled={backupLoading}
-                        className="w-full bg-emerald-600 hover:bg-emerald-700 disabled:bg-slate-200 disabled:text-slate-400 text-white font-bold py-2.5 rounded-xl transition text-xs shadow-sm shadow-emerald-500/10 cursor-pointer"
+                        className="w-full bg-emerald-600 hover:bg-emerald-700 disabled:bg-slate-200 disabled:text-slate-400 text-white font-bold py-2.5 rounded-xl transition text-xs shadow-sm shadow-emerald-500/10 cursor-pointer flex items-center justify-center gap-1.5"
                       >
+                        {backupLoading ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Plus className="w-3.5 h-3.5" />}
                         立即生成备份快照
                       </button>
                     </form>
+                  </div>
+
+                  {/* Quick Export Live Database Shortcuts */}
+                  <div className="bg-white p-6 rounded-2xl border border-slate-200 space-y-3.5 shadow-xs">
+                    <div className="flex items-center gap-2">
+                      <div className="w-8 h-8 rounded-lg bg-blue-50 text-blue-600 flex items-center justify-center">
+                        <Download className="w-4 h-4" />
+                      </div>
+                      <div>
+                        <h3 className="font-bold text-slate-800 text-sm">一键导出当前系统</h3>
+                        <p className="text-[10px] text-slate-400">直接下载实时数据镜像至本地电脑</p>
+                      </div>
+                    </div>
+                    
+                    <div className="space-y-2 pt-1">
+                      <button
+                        onClick={(e) => downloadApiFile("/api/backups/export?compress=true", `radio_full_backup_${new Date().toISOString().slice(0,10)}.json.gz`, e)}
+                        className="w-full bg-purple-50 hover:bg-purple-100 text-purple-700 border border-purple-200/80 font-bold py-2 px-3 rounded-xl transition text-xs flex items-center justify-between cursor-pointer"
+                      >
+                        <span className="flex items-center gap-2">
+                          <Download className="w-3.5 h-3.5 text-purple-600" />
+                          导出 Gzip 压缩备份包
+                        </span>
+                        <span className="text-[10px] bg-purple-200/60 px-1.5 py-0.5 rounded font-mono font-bold">.json.gz</span>
+                      </button>
+
+                      <button
+                        onClick={(e) => downloadApiFile("/api/backups/export?compress=false", `radio_full_backup_${new Date().toISOString().slice(0,10)}.json`, e)}
+                        className="w-full bg-slate-50 hover:bg-slate-100 text-slate-700 border border-slate-200 font-bold py-2 px-3 rounded-xl transition text-xs flex items-center justify-between cursor-pointer"
+                      >
+                        <span className="flex items-center gap-2">
+                          <Download className="w-3.5 h-3.5 text-slate-500" />
+                          导出原生 JSON 备份
+                        </span>
+                        <span className="text-[10px] bg-slate-200/60 px-1.5 py-0.5 rounded font-mono font-bold">.json</span>
+                      </button>
+                    </div>
                   </div>
 
                   {/* Upload Local Custom Backup File Block */}
@@ -5851,25 +6095,28 @@ export default function App() {
                       <div className="w-8 h-8 rounded-lg bg-indigo-50 text-indigo-600 flex items-center justify-center">
                         <UploadCloud className="w-4 h-4" />
                       </div>
-                      <h3 className="font-bold text-slate-800 text-sm">导入外部备份</h3>
+                      <div>
+                        <h3 className="font-bold text-slate-800 text-sm">导入外部备份恢复</h3>
+                        <p className="text-[10px] text-slate-400">支持 .json 与 .json.gz 压缩包</p>
+                      </div>
                     </div>
                     
-                    <div className="text-xs text-slate-500 leading-relaxed font-semibold font-sans">
-                      如果您曾在其他服务器下载了本系统的 JSON 备份镜像，在此处选择上传即可秒级恢复完整的电台频道设置与全量数据线。
+                    <div className="text-xs text-slate-500 leading-relaxed font-sans">
+                      选择已保存的备份镜像（支持 <b>.json.gz</b> 压缩包或 <b>.json</b> 原生文件），系统将校验结构并一键完成全量电台与分组恢复。
                     </div>
 
-                    <div className="relative border-2 border-dashed border-slate-200 rounded-2xl p-4 text-center hover:bg-slate-50/50 transition cursor-pointer">
+                    <div className="relative border-2 border-dashed border-indigo-200 rounded-2xl p-4 text-center hover:bg-indigo-50/30 transition cursor-pointer group">
                       <input 
                         type="file"
-                        accept=".json"
+                        accept=".json,.gz,.json.gz"
                         onChange={handleUploadBackupLocal}
                         className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
                         id="backup_file_upload_input"
                       />
-                      <div className="space-y-1 text-slate-500">
-                        <Database className="w-6 h-6 mx-auto text-slate-400" />
-                        <div className="text-xs font-bold text-indigo-700">点击此处选择备份文件</div>
-                        <div className="text-[10px] text-slate-400">仅支持 .json 快照容器格式</div>
+                      <div className="space-y-1.5 text-slate-500 group-hover:text-indigo-600 transition">
+                        <Database className="w-7 h-7 mx-auto text-indigo-400 group-hover:scale-110 transition-transform" />
+                        <div className="text-xs font-bold text-indigo-700">点击此处或拖拽备份文件上传</div>
+                        <div className="text-[10px] text-slate-400">支持 .json.gz, .gz, .json 格式</div>
                       </div>
                     </div>
                   </div>
