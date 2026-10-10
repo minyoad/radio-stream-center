@@ -29,6 +29,7 @@ export interface Channel {
   category?: string;
   frequency?: string;
   gain?: number;
+  disabled?: boolean;
   sources: LiveSource[];
 }
 

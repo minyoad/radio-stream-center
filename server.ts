@@ -13,6 +13,7 @@ import crypto from "crypto";
 import { GoogleGenAI, Type } from "@google/genai";
 import OpenAI from "openai";
 import Database from "better-sqlite3";
+import { PRESET_LOGOS, PRESET_CATEGORIES, searchPresetLogos, findBestPresetLogo } from "./src/data/presetLogos";
 function getPlayableSources(sources: any[]) {
   return sources;
 }
@@ -46,6 +47,7 @@ interface Channel {
   category?: string;
   frequency?: string;
   gain?: number;
+  disabled?: boolean;
   sources: LiveSource[];
 }
 
@@ -181,7 +183,8 @@ function initSqlite() {
       city TEXT,
       category TEXT,
       frequency TEXT,
-      gain REAL DEFAULT 1
+      gain REAL DEFAULT 1,
+      disabled INTEGER DEFAULT 0
     );
     CREATE TABLE IF NOT EXISTS sources (
       id TEXT PRIMARY KEY,
@@ -296,7 +299,8 @@ function initSqlite() {
     { name: 'city', def: 'TEXT' },
     { name: 'category', def: 'TEXT' },
     { name: 'frequency', def: 'TEXT' },
-    { name: 'gain', def: 'REAL DEFAULT 1' }
+    { name: 'gain', def: 'REAL DEFAULT 1' },
+    { name: 'disabled', def: 'INTEGER DEFAULT 0' }
   ];
   for (const col of newCols) {
     try {
@@ -713,6 +717,7 @@ function loadData() {
           category: ch.category || "",
           frequency: ch.frequency || "",
           gain: ch.gain || 1,
+          disabled: Boolean(ch.disabled),
           sources: sourceMap.get(ch.id) || []
         };
       });
@@ -874,7 +879,7 @@ function saveData() {
       db.exec("DELETE FROM channels");
       db.exec("DELETE FROM sources");
 
-      const insertChannel = db.prepare("INSERT INTO channels (id, name, logo, tagIds, alias, epgId, description, province, city, category, frequency, gain) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
+      const insertChannel = db.prepare("INSERT INTO channels (id, name, logo, tagIds, alias, epgId, description, province, city, category, frequency, gain, disabled) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
       const insertSource = db.prepare(`
         INSERT INTO sources (id, channelId, url, status, latency, lastChecked)
         VALUES (?, ?, ?, ?, ?, ?)
@@ -893,7 +898,8 @@ function saveData() {
           ch.city || "",
           ch.category || "",
           ch.frequency || "",
-          ch.gain || 1
+          ch.gain || 1,
+          ch.disabled ? 1 : 0
         );
 
         if (ch.sources && ch.sources.length > 0) {
@@ -1943,6 +1949,7 @@ async function runCronJob(job: any) {
     } else if (job.id === "job_check_lines") {
       let targetSources: { id: string; channelId: string; url: string }[] = [];
       channels.forEach((channel) => {
+        if (channel.disabled) return;
         channel.sources.forEach((source) => {
           targetSources.push({
             id: source.id,
@@ -2470,7 +2477,7 @@ async function startServer() {
 
 
 
-    const results = channels.map((ch) => {
+    const results = channels.filter((ch) => !ch.disabled).map((ch) => {
       let list = ch.sources || [];
 
       if (status === "active" || only_active === "true") {
@@ -2503,8 +2510,11 @@ async function startServer() {
       const category = String(req.query.category || "").trim().toLowerCase();
       const status = String(req.query.status || "").trim().toLowerCase();
 
-      // Filter from in-memory channels
+      // Filter from in-memory channels (exclude discontinued/disabled channels by default)
       let filtered = channels;
+      if (req.query.includeDisabled !== "true") {
+        filtered = filtered.filter(ch => !ch.disabled);
+      }
 
       if (keyword) {
         filtered = filtered.filter(ch => 
@@ -2564,6 +2574,7 @@ async function startServer() {
           category: ch.category || "",
           frequency: ch.frequency || "",
           gain: ch.gain || 1,
+          disabled: Boolean(ch.disabled),
           sourcesCount: ch.sources ? ch.sources.length : 0
         };
       });
@@ -3052,34 +3063,65 @@ ${qtfmMatch ? `本地电台库先验参考信息:\n${JSON.stringify({ name: qtfm
     }
   });
 
-  // Dedicated Logo search endpoint
+  // Dedicated Logo search endpoint with preset knowledge base integration
   app.post("/api/channels/search-logos", async (req, res) => {
     try {
       const { name } = req.body;
       if (!name) return res.status(400).json({ error: "频道名称不能为空" });
 
+      const presetMatches = searchPresetLogos(name, { limit: 12 });
       const qtfmMatch = findQtfmStation(name);
       const onlineLogos = await fetchOnlineRadioBrowserLogos(name);
 
-      const candidates: Array<{ url: string; title: string; source: string }> = [];
+      const candidates: Array<{ url: string; title: string; source: string; category?: string }> = [];
+      const addedUrls = new Set<string>();
 
-      if (qtfmMatch?.logo) {
+      // 1. High-precision curated preset database matches
+      for (const pm of presetMatches) {
+        if (!addedUrls.has(pm.logo)) {
+          addedUrls.add(pm.logo);
+          candidates.push({
+            url: pm.logo,
+            title: `${pm.name} (${pm.categoryLabel})`,
+            source: "预置高清台标库",
+            category: pm.categoryLabel
+          });
+        }
+        if (pm.mirrorLogo && !addedUrls.has(pm.mirrorLogo)) {
+          addedUrls.add(pm.mirrorLogo);
+          candidates.push({
+            url: pm.mirrorLogo,
+            title: `${pm.name} (备用镜像)`,
+            source: "预置镜像CDN",
+            category: pm.categoryLabel
+          });
+        }
+      }
+
+      // 2. Local QTFM CSV match
+      if (qtfmMatch?.logo && !addedUrls.has(qtfmMatch.logo)) {
+        addedUrls.add(qtfmMatch.logo);
         candidates.push({
           url: qtfmMatch.logo,
           title: `${qtfmMatch.name} (官方Logo)`,
-          source: "蜻蜓FM电台库"
+          source: "蜻蜓FM电台库",
+          category: qtfmMatch.category || "电台"
         });
       }
 
+      // 3. Online Radio Browser results
       onlineLogos.forEach(ol => {
-        candidates.push({
-          url: ol.url,
-          title: ol.title,
-          source: ol.source
-        });
+        if (!addedUrls.has(ol.url)) {
+          addedUrls.add(ol.url);
+          candidates.push({
+            url: ol.url,
+            title: ol.title,
+            source: ol.source
+          });
+        }
       });
 
-      // Try AI for additional high quality logo if needed
+      // 4. Try AI for additional high quality logo if needed
       if (candidates.length < 2 && (geminiApiKey || openaiApiKey || process.env.GEMINI_API_KEY)) {
         try {
           const prompt = `请提供广播电台/频道 "${name}" 的官方或公开高清台标 Logo 图片直链 URL（如维基百科、官方图片等）。返回 JSON 数组格式包含 logoCandidates。`;
@@ -3094,7 +3136,8 @@ ${qtfmMatch ? `本地电台库先验参考信息:\n${JSON.stringify({ name: qtfm
             const parsed = JSON.parse(result);
             if (Array.isArray(parsed.logoCandidates)) {
               parsed.logoCandidates.forEach((u: string) => {
-                if (u && typeof u === "string" && u.startsWith("http") && !candidates.some(c => c.url === u)) {
+                if (u && typeof u === "string" && u.startsWith("http") && !addedUrls.has(u)) {
+                  addedUrls.add(u);
                   candidates.push({
                     url: u,
                     title: `${name} 台标`,
@@ -3110,6 +3153,34 @@ ${qtfmMatch ? `本地电台库先验参考信息:\n${JSON.stringify({ name: qtfm
       res.json({ success: true, data: candidates });
     } catch (err: any) {
       res.status(500).json({ error: err.message || "获取Logo失败" });
+    }
+  });
+
+  // Dedicated Preset Logos exploration API (browse by category, search keyword)
+  app.get("/api/channels/preset-logos", (req, res) => {
+    try {
+      const category = (req.query.category as string) || "all";
+      const keyword = (req.query.keyword as string) || "";
+      const limit = Math.min(Number(req.query.limit) || 120, 300);
+
+      let results = PRESET_LOGOS;
+      if (category && category !== "all") {
+        results = results.filter(p => p.category === category);
+      }
+      if (keyword && keyword.trim()) {
+        results = searchPresetLogos(keyword, { category: category === "all" ? undefined : category, limit });
+      } else {
+        results = results.slice(0, limit);
+      }
+
+      res.json({
+        success: true,
+        categories: PRESET_CATEGORIES,
+        total: results.length,
+        data: results
+      });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message || "获取预置台标失败" });
     }
   });
 
@@ -3179,9 +3250,13 @@ ${qtfmMatch ? `本地电台库先验参考信息:\n${JSON.stringify({ name: qtfm
         const qtfmMatch = findQtfmStation(ch.name);
         let changed = false;
 
-        // Fill missing logo
+        // Fill missing logo from preset knowledge base or QTFM
         if (fields.includes("logo") && (!ch.logo || ch.logo.includes("unsplash") || ch.logo.includes("gtimg"))) {
-          if (qtfmMatch?.logo) {
+          const presetMatch = findBestPresetLogo(ch.name);
+          if (presetMatch?.logo) {
+            ch.logo = presetMatch.logo;
+            changed = true;
+          } else if (qtfmMatch?.logo) {
             ch.logo = qtfmMatch.logo;
             changed = true;
           }
@@ -3220,7 +3295,7 @@ ${qtfmMatch ? `本地电台库先验参考信息:\n${JSON.stringify({ name: qtfm
   });
 
   app.post("/api/channels", (req, res) => {
-    const { name, groupIds, category, logo, alias, epgId, description, province, city, frequency, gain } = req.body;
+    const { name, groupIds, category, logo, alias, epgId, description, province, city, frequency, gain, disabled } = req.body;
     if (!name) {
       return res.status(400).json({ error: "频道名称为必填项" });
     }
@@ -3260,6 +3335,7 @@ ${qtfmMatch ? `本地电台库先验参考信息:\n${JSON.stringify({ name: qtfm
       category: category || "",
       frequency: frequency || "",
       gain: gain !== undefined ? Number(gain) : 1,
+      disabled: Boolean(disabled),
       sources: []
     };
 
@@ -3270,7 +3346,7 @@ ${qtfmMatch ? `本地电台库先验参考信息:\n${JSON.stringify({ name: qtfm
 
   app.put("/api/channels/:id", (req, res) => {
     const { id } = req.params;
-    const { name, groupIds, category, logo, alias, epgId, description, province, city, frequency, gain } = req.body;
+    const { name, groupIds, category, logo, alias, epgId, description, province, city, frequency, gain, disabled } = req.body;
 
     const channel = channels.find((c) => c.id === id);
     if (!channel) {
@@ -3303,9 +3379,52 @@ ${qtfmMatch ? `本地电台库先验参考信息:\n${JSON.stringify({ name: qtfm
     if (category !== undefined) channel.category = category;
     if (frequency !== undefined) channel.frequency = frequency;
     if (gain !== undefined) channel.gain = gain;
+    if (disabled !== undefined) channel.disabled = Boolean(disabled);
 
     saveData();
     res.json(channel);
+  });
+
+  // Quick toggle channel disabled status (discontinued/active)
+  app.post("/api/channels/:id/toggle-disabled", (req, res) => {
+    const { id } = req.params;
+    const channel = channels.find((c) => c.id === id);
+    if (!channel) {
+      return res.status(404).json({ error: "未找到该频道" });
+    }
+
+    channel.disabled = !channel.disabled;
+    saveData();
+    res.json({
+      success: true,
+      channel,
+      message: channel.disabled ? `频道「${channel.name}」已标记为停播（不再导出）` : `频道「${channel.name}」已恢复正常播送`
+    });
+  });
+
+  // Batch set channels disabled/discontinued status
+  app.post("/api/channels/batch-set-disabled", (req, res) => {
+    const { channelIds, disabled } = req.body;
+    if (!Array.isArray(channelIds) || channelIds.length === 0) {
+      return res.status(400).json({ error: "请提供要操作的频道 ID 列表" });
+    }
+
+    const targetDisabled = Boolean(disabled);
+    let count = 0;
+    channels.forEach((ch) => {
+      if (channelIds.includes(ch.id)) {
+        ch.disabled = targetDisabled;
+        count++;
+      }
+    });
+
+    saveData();
+    res.json({
+      success: true,
+      count,
+      disabled: targetDisabled,
+      message: targetDisabled ? `已成功将 ${count} 个频道批量标记为停播` : `已成功将 ${count} 个频道批量恢复播送`
+    });
   });
 
   app.delete("/api/channels/:id", (req, res) => {
@@ -4991,6 +5110,7 @@ ${JSON.stringify(scoredList.map(c => ({ epgId: c.epgId, names: c.displayNames, s
     filteredTags.forEach((group) => {
       const groupName = group.name;
       const chs = channels.filter(c => {
+        if (c.disabled) return false;
         const tIds = c.tagIds || c.groupIds || [];
         return tIds.includes(group.id);
       });
@@ -5036,6 +5156,7 @@ ${JSON.stringify(scoredList.map(c => ({ epgId: c.epgId, names: c.displayNames, s
     filteredTags.forEach((group) => {
       const groupName = group.name;
       const chs = channels.filter(c => {
+        if (c.disabled) return false;
         const tIds = c.tagIds || c.groupIds || [];
         return tIds.includes(group.id);
       });
@@ -5077,7 +5198,7 @@ ${JSON.stringify(scoredList.map(c => ({ epgId: c.epgId, names: c.displayNames, s
   // Returns generic valid XMLTV layout for connected players matching epgIds
 
   app.get("/api/export/radio.json", (req, res) => {
-    const radioData = channels.map(ch => {
+    const radioData = channels.filter(ch => !ch.disabled).map(ch => {
       let streamUrl = "";
       if (ch.sources && ch.sources.length > 0) {
         const activeSource = ch.sources.find(s => s.status === 'active') || ch.sources[0];
@@ -5111,7 +5232,9 @@ ${JSON.stringify(scoredList.map(c => ({ epgId: c.epgId, names: c.displayNames, s
 <!DOCTYPE tv SYSTEM "xmltv.dtd">
 <tv generator-info-name="Radio Channel Manager" generator-info-url="http://localhost:3000/">`;
 
-    const channelTags = channels.map((c) => {
+    const activeChannels = channels.filter(c => !c.disabled);
+
+    const channelTags = activeChannels.map((c) => {
       const epgIdEscaped = escapeXml(c.epgId || generateDefaultEpgId(c.name));
       return `  <channel id="${epgIdEscaped}">
     <display-name lang="zh">${escapeXml(c.name)}</display-name>
@@ -5134,7 +5257,7 @@ ${JSON.stringify(scoredList.map(c => ({ epgId: c.epgId, names: c.displayNames, s
     const todayStr = new Date().toISOString().split("T")[0].replace(/-/g, "");
     const activeEpgSources = epgSources.filter(s => s.active);
 
-    const programTags = channels.map((c) => {
+    const programTags = activeChannels.map((c) => {
       const epgIdEscaped = escapeXml(c.epgId || generateDefaultEpgId(c.name));
       
       let matchedPrograms: any[] = [];
@@ -5181,7 +5304,9 @@ ${JSON.stringify(scoredList.map(c => ({ epgId: c.epgId, names: c.displayNames, s
 <!DOCTYPE tv SYSTEM "xmltv.dtd">
 <tv generator-info-name="Radio Channel Manager" generator-info-url="http://localhost:3000/">`;
 
-    const channelTags = channels.map((c) => {
+    const activeChannels = channels.filter(c => !c.disabled);
+
+    const channelTags = activeChannels.map((c) => {
       const epgIdEscaped = escapeXml(c.epgId || generateDefaultEpgId(c.name));
       return `  <channel id="${epgIdEscaped}">
     <display-name lang="zh">${escapeXml(c.name)}</display-name>
@@ -5204,7 +5329,7 @@ ${JSON.stringify(scoredList.map(c => ({ epgId: c.epgId, names: c.displayNames, s
     const todayStr = new Date().toISOString().split("T")[0].replace(/-/g, "");
     const activeEpgSources = epgSources.filter(s => s.active);
 
-    const programTags = channels.map((c) => {
+    const programTags = activeChannels.map((c) => {
       const epgIdEscaped = escapeXml(c.epgId || generateDefaultEpgId(c.name));
       
       let matchedPrograms: any[] = [];

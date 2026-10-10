@@ -29,8 +29,9 @@ export default function DashboardView({
   onTriggerTest,
   testingStatus,
 }: DashboardProps) {
-  // Stats calculations
   const totalChannels = channels.length;
+  const activeChannelsCount = channels.filter(c => !c.disabled).length;
+  const disabledChannelsCount = channels.filter(c => c.disabled).length;
   
   let totalSources = 0;
   let activeSources = 0;
@@ -60,7 +61,17 @@ export default function DashboardView({
           </div>
           <div className="min-w-0">
             <p className="text-xs sm:text-sm font-medium text-slate-400 truncate">频道总数</p>
-            <h3 className="text-xl sm:text-2xl font-bold text-slate-800">{totalChannels}</h3>
+            <div className="flex items-baseline gap-2">
+              <h3 className="text-xl sm:text-2xl font-bold text-slate-800">{totalChannels}</h3>
+              {disabledChannelsCount > 0 && (
+                <span className="text-[10px] text-amber-700 bg-amber-50 px-1.5 py-0.5 rounded font-bold">
+                  {disabledChannelsCount} 停播
+                </span>
+              )}
+            </div>
+            <p className="text-[10px] text-slate-400 mt-0.5 font-medium truncate">
+              正常 {activeChannelsCount} · 停播 {disabledChannelsCount}
+            </p>
           </div>
         </div>
 

@@ -45,10 +45,18 @@ import {
   Minimize2,
   Sun,
   Moon,
-  Grid
+  Grid,
+  Power,
+  PowerOff,
+  Ban,
+  Archive,
+  BookOpen,
+  Tv,
+  Music
 } from "lucide-react";
 import { Channel, LiveSource, SyncConfig, TestStatus, EpgGuide, Tag, EpgSource } from "./types";
 import DashboardView from "./components/DashboardView";
+import { PRESET_LOGOS, PRESET_CATEGORIES, searchPresetLogos, findBestPresetLogo, PresetLogoItem } from "./data/presetLogos";
 
 export const GITHUB_RADIO_PRESETS = [
   {
@@ -124,6 +132,73 @@ export const GITHUB_RADIO_PRESETS = [
     color: "rose"
   }
 ];
+
+export const DEFAULT_FALLBACK_LOGO_SVG = `data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" fill="none"><rect width="48" height="48" rx="12" fill="%23EEF2FF"/><path d="M24 14v20m-7-15a10 10 0 0 0 0 10m14-10a10 10 0 0 1 0 10m-20-15a16 16 0 0 0 0 20m26-20a16 16 0 0 1 0 20" stroke="%236366F1" stroke-width="2.5" stroke-linecap="round"/><circle cx="24" cy="24" r="3" fill="%234F46E5"/></svg>`;
+
+export function getStationBadgeStyle(name: string) {
+  const n = (name || "").toLowerCase();
+  if (n.includes("cctv") || n.includes("央视")) {
+    return { bg: "bg-rose-50 text-rose-600 border-rose-200", label: "CCTV" };
+  }
+  if (n.includes("卫视")) {
+    return { bg: "bg-sky-50 text-sky-600 border-sky-200", label: "卫视" };
+  }
+  if (n.includes("音乐") || n.includes("music") || n.includes("947") || n.includes("101")) {
+    return { bg: "bg-purple-50 text-purple-600 border-purple-200", label: "音乐" };
+  }
+  if (n.includes("交通") || n.includes("交广")) {
+    return { bg: "bg-amber-50 text-amber-700 border-amber-200", label: "交通" };
+  }
+  if (n.includes("新闻") || n.includes("news") || n.includes("资讯")) {
+    return { bg: "bg-blue-50 text-blue-600 border-blue-200", label: "新闻" };
+  }
+  if (n.includes("bbc") || n.includes("itv") || n.includes("sky") || n.includes("cnn") || n.includes("hbo")) {
+    const word = n.match(/[a-z]{2,4}/i);
+    return { bg: "bg-slate-800 text-white border-slate-700", label: word ? word[0].toUpperCase() : "TV" };
+  }
+  const clean = name.replace(/[^\u4e00-\u9fa5a-zA-Z0-9]/g, "").slice(0, 2);
+  return { bg: "bg-indigo-50 text-indigo-600 border-indigo-200", label: clean || "电台" };
+}
+
+export const ChannelLogoBadge: React.FC<{
+  logo?: string;
+  name: string;
+  className?: string;
+  sizeClass?: string;
+  disabled?: boolean;
+}> = ({ logo, name, className = "", sizeClass = "w-8 h-8 rounded-lg", disabled = false }) => {
+  const [hasError, setHasError] = useState(false);
+  const badge = getStationBadgeStyle(name);
+
+  useEffect(() => {
+    setHasError(false);
+  }, [logo]);
+
+  if (!logo || logo.trim() === "" || hasError) {
+    return (
+      <div 
+        className={`${sizeClass} flex flex-col items-center justify-center p-0.5 border font-black shadow-2xs select-none ${badge.bg} ${disabled ? "grayscale-50 opacity-75" : ""} ${className}`}
+      >
+        <span className="text-[10px] leading-none tracking-tighter truncate max-w-full px-0.5 font-sans font-bold">
+          {badge.label}
+        </span>
+      </div>
+    );
+  }
+
+  return (
+    <img
+      src={logo}
+      alt={name}
+      referrerPolicy="no-referrer"
+      className={`${sizeClass} object-contain bg-slate-100 p-0.5 shadow-xs flex-shrink-0 transition ${disabled ? "grayscale-50 opacity-80" : ""} ${className}`}
+      onError={(e) => {
+        e.currentTarget.onerror = null;
+        setHasError(true);
+      }}
+    />
+  );
+};
 
 export default function App() {
   const [channels, setChannels] = useState<Channel[]>([]);
@@ -256,9 +331,9 @@ export default function App() {
 
   const [channelSubTab, setChannelSubTab] = useState<"channels" | "tags" | "sources">("channels");
   
-  // States for interactive actions
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedCategory, setSelectedCategory] = useState("all");
+  const [channelStatusFilter, setChannelStatusFilter] = useState<"all" | "active" | "disabled">("all");
   const [selectedChannel, setSelectedChannel] = useState<Channel | null>(null);
   
   // Loading states
@@ -280,7 +355,8 @@ export default function App() {
     city: "",
     category: "",
     frequency: "",
-    gain: 1
+    gain: 1,
+    disabled: false
   });
 
   const [isSourceModalOpen, setIsSourceModalOpen] = useState(false);
@@ -344,6 +420,30 @@ export default function App() {
   const [enlargedLogo, setEnlargedLogo] = useState<{ url: string; title: string; subtitle?: string; dimensions?: { width: number; height: number } } | null>(null);
   const [logoZoomScale, setLogoZoomScale] = useState<number>(1);
   const [logoBgMode, setLogoBgMode] = useState<"checkered" | "dark" | "light">("checkered");
+
+  // Preset Logo Knowledge Base Browser State
+  const [isPresetLogoModalOpen, setIsPresetLogoModalOpen] = useState(false);
+  const [presetLogoSearch, setPresetLogoSearch] = useState("");
+  const [presetLogoCategory, setPresetLogoCategory] = useState<string>("all");
+
+  const filteredPresetLogos = useMemo(() => {
+    let list = PRESET_LOGOS;
+    if (presetLogoCategory !== "all") {
+      list = list.filter(p => p.category === presetLogoCategory);
+    }
+    if (presetLogoSearch.trim()) {
+      return searchPresetLogos(presetLogoSearch, { 
+        category: presetLogoCategory === "all" ? undefined : presetLogoCategory,
+        limit: 100
+      });
+    }
+    return list;
+  }, [presetLogoCategory, presetLogoSearch]);
+
+  const quickPresetMatch = useMemo(() => {
+    if (!channelForm.name.trim()) return null;
+    return findBestPresetLogo(channelForm.name);
+  }, [channelForm.name]);
 
   // Reset zoom scale when opened
   const openEnlargedLogo = (logoData: { url: string; title: string; subtitle?: string }) => {
@@ -471,6 +571,7 @@ export default function App() {
             channelId: ch.id,
             channelName: ch.name,
             channelLogo: ch.logo,
+            channelDisabled: ch.disabled,
             channelGroupIds: ch.tagIds || ch.groupIds || []
           });
         });
@@ -1150,7 +1251,8 @@ export default function App() {
         city: channelForm.city,
         category: channelForm.category,
         frequency: channelForm.frequency,
-        gain: channelForm.gain
+        gain: channelForm.gain,
+        disabled: Boolean(channelForm.disabled)
       };
 
       const res = await fetch(endpoint, {
@@ -1161,6 +1263,9 @@ export default function App() {
 
       if (res.ok) {
         showFeedback("success", editingChannel ? "频道修改成功" : "添加频道成功");
+        if (selectedChannel && editingChannel && selectedChannel.id === editingChannel.id) {
+          setSelectedChannel(prev => prev ? { ...prev, ...payload, disabled: Boolean(payload.disabled) } : null);
+        }
         setIsChannelModalOpen(false);
         setEditingChannel(null);
         fetchData();
@@ -1761,7 +1866,8 @@ export default function App() {
       city: "",
       category: "",
       frequency: "",
-      gain: 1
+      gain: 1,
+      disabled: false
     });
     setIsChannelModalOpen(true);
   };
@@ -1784,9 +1890,51 @@ export default function App() {
       city: ch.city || "",
       category: ch.category || "",
       frequency: ch.frequency || "",
-      gain: ch.gain || 1
+      gain: ch.gain || 1,
+      disabled: Boolean(ch.disabled)
     });
     setIsChannelModalOpen(true);
+  };
+
+  const handleToggleChannelDisabled = async (ch: Channel) => {
+    try {
+      const res = await fetch(`/api/channels/${ch.id}/toggle-disabled`, {
+        method: "POST"
+      });
+      if (res.ok) {
+        const data = await res.json();
+        showFeedback("success", data.message || "频道状态已更新");
+        fetchData();
+        if (selectedChannel?.id === ch.id) {
+          setSelectedChannel(prev => prev ? { ...prev, disabled: !prev.disabled } : null);
+        }
+      } else {
+        showFeedback("error", "修改频道停播状态失败");
+      }
+    } catch (e) {
+      showFeedback("error", "网络请求异常");
+    }
+  };
+
+  const handleBatchSetDisabled = async (disabled: boolean) => {
+    if (selectedChannelIds.length === 0) return;
+    try {
+      const res = await fetch("/api/channels/batch-set-disabled", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ channelIds: selectedChannelIds, disabled })
+      });
+      if (res.ok) {
+        const data = await res.json();
+        showFeedback("success", data.message || "批量状态设置完成");
+        fetchData();
+        setSelectedChannelIds([]);
+      } else {
+        showFeedback("error", "批量设置频道状态失败");
+      }
+    } catch (e) {
+      showFeedback("error", "网络通信故障");
+    }
   };
 
   // Live Source CRUD Handlers
@@ -2229,6 +2377,13 @@ export default function App() {
       return;
     }
     setIsAiLogoSearching(true);
+
+    const localCandidates = searchPresetLogos(channelForm.name, { limit: 12 }).map(m => ({
+      url: m.logo,
+      title: `${m.name} (${m.categoryLabel})`,
+      source: "预置高清台标库"
+    }));
+
     try {
       const res = await fetch("/api/channels/search-logos", {
         method: "POST",
@@ -2236,21 +2391,46 @@ export default function App() {
         body: JSON.stringify({ name: channelForm.name })
       });
       const data = await res.json();
-      if (res.ok && data.success) {
-        if (data.data && data.data.length > 0) {
-          setAiLogoCandidates(data.data);
-          if (!channelForm.logo) {
-            setChannelForm(prev => ({ ...prev, logo: data.data[0].url }));
+      
+      const combined: Array<{ url: string; title: string; source: string }> = [];
+      const seenUrls = new Set<string>();
+
+      if (res.ok && data.success && Array.isArray(data.data)) {
+        data.data.forEach((d: any) => {
+          if (d && d.url && !seenUrls.has(d.url)) {
+            seenUrls.add(d.url);
+            combined.push(d);
           }
-          showFeedback("success", `已检索到 ${data.data.length} 个电台台标候选`);
-        } else {
-          showFeedback("info", "暂未从在线库与AI中检索到该电台的独立Logo，可手动填入图片直链");
+        });
+      }
+
+      // Add local preset candidates if not already present
+      localCandidates.forEach(lc => {
+        if (!seenUrls.has(lc.url)) {
+          seenUrls.add(lc.url);
+          combined.push(lc);
         }
+      });
+
+      if (combined.length > 0) {
+        setAiLogoCandidates(combined);
+        if (!channelForm.logo) {
+          setChannelForm(prev => ({ ...prev, logo: combined[0].url }));
+        }
+        showFeedback("success", `已检索到 ${combined.length} 个台标候选`);
       } else {
-        showFeedback("error", data.error || "获取Logo失败");
+        showFeedback("info", "未检索到匹配的独立Logo，可点击「预置台标库」浏览选择或手动填入直链");
       }
     } catch (err: any) {
-      showFeedback("error", err.message || "检索Logo网络异常");
+      if (localCandidates.length > 0) {
+        setAiLogoCandidates(localCandidates);
+        if (!channelForm.logo) {
+          setChannelForm(prev => ({ ...prev, logo: localCandidates[0].url }));
+        }
+        showFeedback("success", `已从内置预置库检索到 ${localCandidates.length} 个台标候选`);
+      } else {
+        showFeedback("error", err.message || "检索Logo网络异常");
+      }
     } finally {
       setIsAiLogoSearching(false);
     }
@@ -2392,7 +2572,12 @@ export default function App() {
         const g = tags.find(gl => gl.id === gId);
         return g && g.name === selectedCategory;
       });
-      return matchesSearch && matchesCategory;
+
+      const matchesStatus = channelStatusFilter === "all" ||
+                            (channelStatusFilter === "active" && !c.disabled) ||
+                            (channelStatusFilter === "disabled" && !!c.disabled);
+
+      return matchesSearch && matchesCategory && matchesStatus;
     });
 
     if (channelSortBy === "name_asc") {
@@ -2420,7 +2605,7 @@ export default function App() {
     }
 
     return list;
-  }, [channels, searchQuery, selectedCategory, channelSortBy, tags]);
+  }, [channels, searchQuery, selectedCategory, channelStatusFilter, channelSortBy, tags]);
 
   const slicedChannels = useMemo(() => {
     return filteredChannels.slice(0, channelPage * CHANNELS_PER_PAGE);
@@ -2939,8 +3124,8 @@ export default function App() {
                 <div className="space-y-4 animate-fade-in" id="groups_inner_channels_pane">
                   {/* Search and Action Toolbar */}
                   <div className="flex flex-col md:flex-row gap-3 justify-between items-stretch md:items-center" id="channel_filter_panel">
-                    <div className="flex items-center gap-2 flex-1">
-                      <div className="relative flex-1 sm:max-w-md">
+                    <div className="flex flex-wrap items-center gap-2 flex-1">
+                      <div className="relative flex-1 min-w-[200px] sm:max-w-xs">
                         <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
                         <input 
                           type="text"
@@ -2959,6 +3144,44 @@ export default function App() {
                           </button>
                         )}
                       </div>
+
+                      {/* Status Filter Tabs (All / Active / Disabled) */}
+                      <div className="flex items-center gap-1 bg-slate-100/90 p-1 rounded-xl border border-slate-200/60 shrink-0">
+                        <button
+                          onClick={() => setChannelStatusFilter("all")}
+                          className={`px-2.5 py-1 rounded-lg text-[11px] font-bold transition cursor-pointer ${
+                            channelStatusFilter === "all"
+                              ? "bg-white text-slate-800 shadow-xs"
+                              : "text-slate-500 hover:text-slate-800"
+                          }`}
+                        >
+                          全部 ({channels.length})
+                        </button>
+                        <button
+                          onClick={() => setChannelStatusFilter("active")}
+                          className={`px-2.5 py-1 rounded-lg text-[11px] font-bold transition cursor-pointer flex items-center gap-1 ${
+                            channelStatusFilter === "active"
+                              ? "bg-emerald-600 text-white shadow-xs"
+                              : "text-slate-500 hover:text-emerald-700"
+                          }`}
+                        >
+                          <Radio className="w-3 h-3" />
+                          正常 ({channels.filter(c => !c.disabled).length})
+                        </button>
+                        <button
+                          onClick={() => setChannelStatusFilter("disabled")}
+                          className={`px-2.5 py-1 rounded-lg text-[11px] font-bold transition cursor-pointer flex items-center gap-1 ${
+                            channelStatusFilter === "disabled"
+                              ? "bg-amber-600 text-white shadow-xs"
+                              : "text-slate-500 hover:text-amber-700"
+                          }`}
+                          title="已停播频道（不再导出，仅归档记录）"
+                        >
+                          <PowerOff className="w-3 h-3" />
+                          停播 ({channels.filter(c => c.disabled).length})
+                        </button>
+                      </div>
+
                       {searchQuery && (
                         <span className="text-[11px] text-slate-500 font-semibold shrink-0">
                           匹配 <span className="font-bold text-indigo-600">{filteredChannels.length}</span> 个
@@ -3111,6 +3334,22 @@ export default function App() {
                             <Layers className="w-3 h-3" />
                             批量标签
                           </button>
+                          <button
+                            onClick={() => handleBatchSetDisabled(true)}
+                            className="bg-amber-600 hover:bg-amber-700 text-white text-[10px] font-bold px-2.5 py-1 rounded-lg transition shadow-xs cursor-pointer flex items-center gap-1"
+                            title="批量标记所选频道为已停播（不再导出，仅归档记录）"
+                          >
+                            <PowerOff className="w-3 h-3" />
+                            批量停播
+                          </button>
+                          <button
+                            onClick={() => handleBatchSetDisabled(false)}
+                            className="bg-emerald-600 hover:bg-emerald-700 text-white text-[10px] font-bold px-2.5 py-1 rounded-lg transition shadow-xs cursor-pointer flex items-center gap-1"
+                            title="批量恢复所选频道播送（允许导出）"
+                          >
+                            <Radio className="w-3 h-3" />
+                            批量恢复
+                          </button>
                           {selectedCategory !== "all" && (
                             <button
                               onClick={handleBatchRemoveFromGroup}
@@ -3170,7 +3409,11 @@ export default function App() {
                               openChannelEdit(ch);
                             }}
                             className={`p-3.5 transition flex items-center justify-between cursor-pointer ${
-                              isSelected ? "bg-blue-50/60 border-l-4 border-blue-600" : "hover:bg-slate-55/40"
+                              isSelected 
+                                ? "bg-blue-50/60 border-l-4 border-blue-600" 
+                                : ch.disabled 
+                                  ? "bg-amber-50/25 hover:bg-amber-50/50" 
+                                  : "hover:bg-slate-55/40"
                             }`}
                           >
                             <div className="flex items-center gap-2.5 min-w-0 flex-1">
@@ -3195,17 +3438,18 @@ export default function App() {
                                 onClick={(e) => {
                                   e.stopPropagation();
                                   openEnlargedLogo({
-                                    url: ch.logo || "https://images.unsplash.com/photo-1598257006458-087169a1f08d?auto=format&fit=crop&w=300&q=80",
+                                    url: ch.logo || DEFAULT_FALLBACK_LOGO_SVG,
                                     title: ch.name,
                                     subtitle: [ch.frequency, (ch.tagIds || ch.groupIds || []).map(gId => tags.find(g => g.id === gId)?.name).filter(Boolean).join(", ")].filter(Boolean).join(" · ")
                                   });
                                 }}
                               >
-                                <img 
-                                  src={ch.logo || "https://images.unsplash.com/photo-1598257006458-087169a1f08d?auto=format&fit=crop&w=48&h=48&q=80"}
-                                  alt="logo"
-                                  className="w-8 h-8 rounded-lg object-contain bg-slate-100 p-0.5 shadow-xs flex-shrink-0 group-hover/logo:ring-2 group-hover/logo:ring-blue-400 transition"
-                                  onError={(e)=>{ (e.target as HTMLImageElement).src="https://images.unsplash.com/photo-1598257006458-087169a1f08d?auto=format&fit=crop&w=48&h=48&q=80" }}
+                                <ChannelLogoBadge 
+                                  logo={ch.logo} 
+                                  name={ch.name} 
+                                  sizeClass="w-8 h-8 rounded-lg" 
+                                  disabled={ch.disabled}
+                                  className="group-hover/logo:ring-2 group-hover/logo:ring-blue-400"
                                 />
                                 <div className="absolute inset-0 bg-slate-900/40 opacity-0 group-hover/logo:opacity-100 transition-opacity rounded-lg flex items-center justify-center pointer-events-none">
                                   <ZoomIn className="w-3.5 h-3.5 text-white drop-shadow-xs" />
@@ -3213,7 +3457,12 @@ export default function App() {
                               </div>
                               <div className="min-w-0 flex-1">
                                 <p className="text-xs font-bold text-slate-800 flex items-center gap-1.5 truncate">
-                                  {ch.name}
+                                  <span className={ch.disabled ? "text-slate-500 line-through decoration-slate-300" : ""}>{ch.name}</span>
+                                  {ch.disabled && (
+                                    <span className="text-[9px] font-bold bg-amber-100 text-amber-800 border border-amber-300 px-1.5 py-0.2 rounded flex items-center gap-0.5 shrink-0" title="该频道已停播（不再参与对外导出，仅留存记录）">
+                                      <PowerOff className="w-2.5 h-2.5 text-amber-700" /> 已停播
+                                    </span>
+                                  )}
                                 </p>
                                 {(ch.description || ch.province || ch.city || ch.frequency) && (
                                   <p className="text-[10px] text-slate-500 font-normal truncate mt-0.5">
@@ -3246,12 +3495,26 @@ export default function App() {
                             
                             <div className="flex items-center gap-2 flex-shrink-0 ml-2">
                               {/* Count pill badge */}
-                              <span className="text-[10px] font-bold bg-slate-100 text-slate-600 px-2 py-0.5 rounded-full">
+                              <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${ch.disabled ? "bg-amber-100/70 text-amber-800" : "bg-slate-100 text-slate-600"}`}>
                                 {activeCount} / {ch.sources.length} <span className="hidden sm:inline">条有效</span>
                               </span>
 
                               {/* Small Quick Action Panel */}
-                              <div className="flex gap-1.5">
+                              <div className="flex gap-1">
+                                <button 
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleToggleChannelDisabled(ch);
+                                  }}
+                                  className={`p-1 rounded transition cursor-pointer ${
+                                    ch.disabled 
+                                      ? "text-amber-600 hover:bg-amber-100" 
+                                      : "text-slate-400 hover:bg-slate-100 hover:text-slate-600"
+                                  }`}
+                                  title={ch.disabled ? "当前为「已停播」，点击恢复播送（恢复导出）" : "当前为「正常播送」，点击标记为已停播（不再导出，仅留存记录）"}
+                                >
+                                  {ch.disabled ? <PowerOff className="w-3.5 h-3.5" /> : <Power className="w-3.5 h-3.5" />}
+                                </button>
                                 <button 
                                   onClick={(e) => {
                                     e.stopPropagation();
@@ -3304,17 +3567,18 @@ export default function App() {
                             title="点击放大查看高清台标"
                             onClick={() => {
                               openEnlargedLogo({
-                                url: selectedChannel.logo || "https://images.unsplash.com/photo-1598257006458-087169a1f08d?auto=format&fit=crop&w=400&q=80",
+                                url: selectedChannel.logo || DEFAULT_FALLBACK_LOGO_SVG,
                                 title: selectedChannel.name,
                                 subtitle: [selectedChannel.frequency, (selectedChannel.tagIds || selectedChannel.groupIds || []).map(gId => tags.find(g => g.id === gId)?.name).filter(Boolean).join(", ")].filter(Boolean).join(" · ")
                               });
                             }}
                           >
-                            <img 
-                              src={selectedChannel.logo || "https://images.unsplash.com/photo-1598257006458-087169a1f08d?auto=format&fit=crop&w=48&h=48&q=80"} 
-                              alt="logo" 
-                              className="w-10 h-10 rounded-xl object-contain bg-slate-50 border p-1 group-hover/headlogo:ring-2 group-hover/headlogo:ring-blue-500 transition shadow-xs"
-                              onError={(e)=>{ (e.target as HTMLImageElement).src="https://images.unsplash.com/photo-1598257006458-087169a1f08d?auto=format&fit=crop&w=48&h=48&q=80" }}
+                            <ChannelLogoBadge 
+                              logo={selectedChannel.logo} 
+                              name={selectedChannel.name} 
+                              sizeClass="w-10 h-10 rounded-xl" 
+                              disabled={selectedChannel.disabled}
+                              className="group-hover/headlogo:ring-2 group-hover/headlogo:ring-blue-500 shadow-xs"
                             />
                             <div className="absolute inset-0 bg-slate-900/40 opacity-0 group-hover/headlogo:opacity-100 transition-opacity rounded-xl flex items-center justify-center pointer-events-none">
                               <ZoomIn className="w-4 h-4 text-white drop-shadow-xs" />
@@ -3322,7 +3586,18 @@ export default function App() {
                           </div>
                           <div className="space-y-1">
                             <div className="flex flex-wrap items-center gap-2">
-                              <h3 className="font-bold text-slate-800 text-sm leading-tight">{selectedChannel.name}</h3>
+                              <h3 className={`font-bold text-sm leading-tight ${selectedChannel.disabled ? "text-slate-600 line-through decoration-slate-300" : "text-slate-800"}`}>
+                                {selectedChannel.name}
+                              </h3>
+                              {selectedChannel.disabled ? (
+                                <span className="bg-amber-100 text-amber-800 border border-amber-300 text-[10px] font-bold px-2 py-0.5 rounded-md flex items-center gap-1 shadow-2xs">
+                                  <PowerOff className="w-3 h-3 text-amber-700" /> 已停播（仅留存记录，不导出）
+                                </span>
+                              ) : (
+                                <span className="bg-emerald-50 text-emerald-700 border border-emerald-200 text-[10px] font-bold px-2 py-0.5 rounded-md flex items-center gap-1">
+                                  <Radio className="w-3 h-3 text-emerald-600" /> 播送中（正常导出）
+                                </span>
+                              )}
                               <div className="flex flex-wrap items-center gap-1">
                                 {(selectedChannel.tagIds || selectedChannel.groupIds || []).map((gId) => {
                                   const tagName = tags.find(g => g.id === gId)?.name;
@@ -3346,6 +3621,27 @@ export default function App() {
 
                         <div className="flex flex-wrap gap-2.5">
                           <button
+                            onClick={() => handleToggleChannelDisabled(selectedChannel)}
+                            className={`text-[11px] font-bold px-3 py-1.5 rounded-xl transition cursor-pointer flex items-center gap-1.5 shadow-2xs ${
+                              selectedChannel.disabled
+                                ? "bg-emerald-600 hover:bg-emerald-700 text-white"
+                                : "bg-amber-50 hover:bg-amber-100 text-amber-700 border border-amber-200"
+                            }`}
+                            title={selectedChannel.disabled ? "恢复播送该频道，重新参与对外导出" : "标记停播，停止导出该频道的所有线路"}
+                          >
+                            {selectedChannel.disabled ? (
+                              <>
+                                <Radio className="w-3.5 h-3.5" />
+                                恢复播送
+                              </>
+                            ) : (
+                              <>
+                                <PowerOff className="w-3.5 h-3.5" />
+                                标记停播
+                              </>
+                            )}
+                          </button>
+                          <button
                             onClick={() => lookupEPG(selectedChannel)}
                             disabled={epgLoading}
                             className="bg-indigo-50 hover:bg-indigo-100 text-indigo-700 text-[11px] font-bold px-3 py-1.5 rounded-xl transition cursor-pointer flex items-center"
@@ -3362,6 +3658,21 @@ export default function App() {
                           </button>
                         </div>
                       </div>
+
+                      {/* Notice banner when channel is discontinued/disabled */}
+                      {selectedChannel.disabled && (
+                        <div className="bg-amber-50/80 border border-amber-200/90 rounded-xl p-3.5 flex items-start gap-2.5 text-xs text-amber-800 animate-fade-in" id="channel_disabled_alert">
+                          <PowerOff className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+                          <div className="flex-1">
+                            <p className="font-bold flex items-center gap-1">
+                              此电台已被标记为「已停播」状态
+                            </p>
+                            <p className="text-[11px] text-amber-700 mt-0.5 leading-relaxed">
+                              该电台的元数据及关联的 {selectedChannel.sources.length} 条线路仅用于历史记录与留存。系统在生成 M3U、TXT、JSON 及 EPG 导视输出时已自动将其过滤排除，不会向第三方客户端提供该电台。若频道恢复广播，点击右上角「恢复播送」即可重新激活。
+                            </p>
+                          </div>
+                        </div>
+                      )}
 
                       {/* Dynamic EPG timeline drawer if requested */}
                       {epgGuide && (
@@ -4098,22 +4409,29 @@ export default function App() {
                                   </td>
                                   <td className="py-3.5 px-3">
                                     <div className="flex items-center gap-2">
-                                      {item.channelLogo && item.channelLogo.trim() !== "" ? (
-                                        <div 
-                                          className="relative group/sourcelogo cursor-zoom-in shrink-0" 
-                                          title="点击放大查看台标"
-                                          onClick={() => openEnlargedLogo({ url: item.channelLogo!, title: item.channelName })}
-                                        >
-                                          <img src={item.channelLogo} alt={item.channelName} className="w-5.5 h-5.5 object-contain bg-slate-50 rounded border border-slate-100 p-0.5 shrink-0 group-hover/sourcelogo:ring-2 group-hover/sourcelogo:ring-indigo-400" referrerPolicy="no-referrer" />
-                                          <div className="absolute inset-0 bg-slate-900/40 opacity-0 group-hover/sourcelogo:opacity-100 transition-opacity rounded flex items-center justify-center pointer-events-none">
-                                            <ZoomIn className="w-2.5 h-2.5 text-white" />
-                                          </div>
+                                      <div 
+                                        className="relative group/sourcelogo cursor-zoom-in shrink-0" 
+                                        title="点击放大查看台标"
+                                        onClick={() => openEnlargedLogo({ url: item.channelLogo || DEFAULT_FALLBACK_LOGO_SVG, title: item.channelName })}
+                                      >
+                                        <ChannelLogoBadge 
+                                          logo={item.channelLogo} 
+                                          name={item.channelName} 
+                                          sizeClass="w-5.5 h-5.5 rounded" 
+                                          disabled={item.channelDisabled}
+                                          className="group-hover/sourcelogo:ring-2 group-hover/sourcelogo:ring-indigo-400"
+                                        />
+                                        <div className="absolute inset-0 bg-slate-900/40 opacity-0 group-hover/sourcelogo:opacity-100 transition-opacity rounded flex items-center justify-center pointer-events-none">
+                                          <ZoomIn className="w-2.5 h-2.5 text-white" />
                                         </div>
-                                      ) : (
-                                        <div className="w-5.5 h-5.5 rounded bg-slate-100 text-[10px] font-black flex items-center justify-center text-slate-400 font-mono p-0.5">FM</div>
-                                      )}
+                                      </div>
                                       <div className="truncate max-w-[140px]">
-                                        <span className="font-extrabold text-slate-800 text-xs block truncate" title={item.channelName}>{item.channelName}</span>
+                                        <span className={`font-extrabold text-xs block truncate ${item.channelDisabled ? "text-slate-500 line-through decoration-slate-300" : "text-slate-800"}`} title={item.channelName}>{item.channelName}</span>
+                                        {item.channelDisabled && (
+                                          <span className="text-[9px] font-bold text-amber-800 bg-amber-100 border border-amber-300 px-1 py-0.2 rounded inline-flex items-center gap-0.5 mt-0.5">
+                                            <PowerOff className="w-2.5 h-2.5 text-amber-700" /> 已停播
+                                          </span>
+                                        )}
                                       </div>
                                     </div>
                                   </td>
@@ -4779,6 +5097,10 @@ export default function App() {
                   本系统支持将您管理的、测速完毕的最优直播资源无缝暴露给诸如 <b>PotPlayer, Kodi, 智能音箱 或是 Apple Perfect Player</b> 等第三方客户端使用。
                   以下您可以直接复制全局无阻碍播放路径，亦可通过下方的多维控制网格对接口行为进行精确定制（如：仅在局域网内只输出特定运营商并处于活跃状态的线路），定制后接口将实时按需过滤！
                 </p>
+                <div className="bg-amber-100/60 border border-amber-200 text-amber-900 px-3 py-2 rounded-xl flex items-center gap-2 text-[11px] font-medium mt-2">
+                  <PowerOff className="w-3.5 h-3.5 text-amber-700 shrink-0" />
+                  <span>系统已自动排除已标记为<b>「停播」</b>的频道（共 {channels.filter(c => c.disabled).length} 个），确保生成的各类 M3U、TXT、JSON 及 EPG 接口仅包含正常播出的节目，停播频道仅供历史档案记录。</span>
+                </div>
               </div>
 
               {/* API settings dynamic builder */}
@@ -6473,20 +6795,75 @@ export default function App() {
                 )}
               </div>
 
-              {/* Logo Section with Live Preview and Candidate Gallery */}
+              {/* Logo Section with Preset Library, Live Preview, and Candidate Gallery */}
               <div className="space-y-2 font-sans">
-                <div className="flex items-center justify-between">
-                  <label className="text-slate-600 font-bold">频道台标图片图标 (Logo URL)</label>
-                  <button
-                    type="button"
-                    onClick={runSearchLogo}
-                    disabled={isAiLogoSearching || !channelForm.name.trim()}
-                    className="text-purple-700 bg-purple-50 hover:bg-purple-100 px-2.5 py-1 rounded-lg border border-purple-200 text-[10px] font-bold flex items-center gap-1 transition cursor-pointer disabled:opacity-50"
-                  >
-                    <ImageIcon className="w-3 h-3" />
-                    {isAiLogoSearching ? "搜索中..." : "在线搜索Logo"}
-                  </button>
+                <div className="flex items-center justify-between flex-wrap gap-2">
+                  <label className="text-slate-700 font-bold text-xs flex items-center gap-1.5">
+                    <ImageIcon className="w-3.5 h-3.5 text-indigo-600" />
+                    频道台标图片图标 (Logo URL)
+                  </label>
+                  <div className="flex items-center gap-1.5">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setPresetLogoSearch(channelForm.name || "");
+                        setIsPresetLogoModalOpen(true);
+                      }}
+                      className="text-indigo-700 bg-indigo-50 hover:bg-indigo-100 px-2.5 py-1 rounded-lg border border-indigo-200 text-[10px] font-bold flex items-center gap-1 transition cursor-pointer shadow-2xs"
+                      title="打开预置台标信息库，涵盖央视、各省卫视、港澳台、国际名台及全国广播电台全套高清台标"
+                    >
+                      <BookOpen className="w-3 h-3 text-indigo-600" />
+                      预置台标库
+                    </button>
+                    <button
+                      type="button"
+                      onClick={runSearchLogo}
+                      disabled={isAiLogoSearching || !channelForm.name.trim()}
+                      className="text-purple-700 bg-purple-50 hover:bg-purple-100 px-2.5 py-1 rounded-lg border border-purple-200 text-[10px] font-bold flex items-center gap-1 transition cursor-pointer disabled:opacity-50 shadow-2xs"
+                    >
+                      <Sparkles className="w-3 h-3" />
+                      {isAiLogoSearching ? "搜索中..." : "在线搜索Logo"}
+                    </button>
+                  </div>
                 </div>
+
+                {/* Instant Preset Match Auto-Recommendation Banner */}
+                {quickPresetMatch && channelForm.logo !== quickPresetMatch.logo && (
+                  <div className="bg-indigo-50/90 border border-indigo-200/90 rounded-xl p-2.5 flex items-center justify-between gap-3 text-xs shadow-2xs">
+                    <div className="flex items-center gap-2.5 min-w-0">
+                      <div className="w-8 h-8 rounded-lg bg-white border border-indigo-100 p-0.5 flex items-center justify-center shrink-0 overflow-hidden">
+                        <img 
+                          src={quickPresetMatch.logo} 
+                          alt={quickPresetMatch.name} 
+                          referrerPolicy="no-referrer"
+                          className="w-full h-full object-contain"
+                          onError={(e) => {
+                            e.currentTarget.onerror = null;
+                            e.currentTarget.src = DEFAULT_FALLBACK_LOGO_SVG;
+                          }}
+                        />
+                      </div>
+                      <div className="truncate">
+                        <span className="font-bold text-indigo-900 block truncate text-[11px]">
+                          预置库已找到匹配台标：{quickPresetMatch.name}
+                        </span>
+                        <span className="text-[10px] text-indigo-600 block">
+                          {quickPresetMatch.categoryLabel} · 官方透明高清台标
+                        </span>
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setChannelForm(prev => ({ ...prev, logo: quickPresetMatch.logo }));
+                        showFeedback("success", `已采纳预置库台标: ${quickPresetMatch.name}`);
+                      }}
+                      className="px-2.5 py-1 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-[10px] font-bold shrink-0 transition shadow-2xs cursor-pointer flex items-center gap-1"
+                    >
+                      <Check className="w-3 h-3" /> 一键填入
+                    </button>
+                  </div>
+                )}
                 
                 <div className="flex items-center gap-3">
                   <div 
@@ -6511,7 +6888,8 @@ export default function App() {
                           referrerPolicy="no-referrer"
                           className="w-full h-full object-contain"
                           onError={(e) => {
-                            (e.target as HTMLImageElement).src = "https://vfiles.gtimg.cn/vupload/20210729/cf2b0d1627514936398.png";
+                            e.currentTarget.onerror = null;
+                            e.currentTarget.src = DEFAULT_FALLBACK_LOGO_SVG;
                           }}
                         />
                         <div className="absolute inset-0 bg-slate-900/40 opacity-0 group-hover/editlogo:opacity-100 transition-opacity rounded-xl flex items-center justify-center pointer-events-none">
@@ -6562,7 +6940,8 @@ export default function App() {
                                 referrerPolicy="no-referrer"
                                 className="w-full h-full object-contain"
                                 onError={(e) => {
-                                  (e.target as HTMLImageElement).src = "https://vfiles.gtimg.cn/vupload/20210729/cf2b0d1627514936398.png";
+                                  e.currentTarget.onerror = null;
+                                  e.currentTarget.src = DEFAULT_FALLBACK_LOGO_SVG;
                                 }}
                               />
                               <button
@@ -6606,6 +6985,31 @@ export default function App() {
                   className="w-full text-xs p-2.5 border border-slate-200 rounded-xl focus:border-indigo-500 bg-slate-50 focus:outline-none placeholder-slate-400 text-slate-800"
                 />
                 <p className="text-[10px] text-slate-400 font-medium font-sans">导入不同直播源时，只要名字撞到了这些别名，就会自动归为此频道的源。</p>
+              </div>
+
+              {/* Channel Disabled / Discontinued Status Toggle */}
+              <div className="bg-slate-50 border border-slate-200 rounded-xl p-3.5 space-y-1.5 font-sans">
+                <div className="flex items-center justify-between">
+                  <div className="space-y-0.5 pr-2">
+                    <label htmlFor="channel_disabled_toggle" className="text-xs font-bold text-slate-800 flex items-center gap-1.5 cursor-pointer">
+                      <PowerOff className={`w-3.5 h-3.5 ${channelForm.disabled ? "text-amber-600" : "text-slate-400"}`} />
+                      频道停播标记（已停播，仅用于记录）
+                    </label>
+                    <p className="text-[10px] text-slate-500 font-normal leading-relaxed">
+                      勾选后此频道标记为已停播，系统仅保留其历史信息与线路供记录备忘，不再向 M3U / TXT / EPG 导出。
+                    </p>
+                  </div>
+                  <label className="relative inline-flex items-center cursor-pointer shrink-0">
+                    <input
+                      type="checkbox"
+                      id="channel_disabled_toggle"
+                      checked={channelForm.disabled}
+                      onChange={(e) => setChannelForm({ ...channelForm, disabled: e.target.checked })}
+                      className="sr-only peer"
+                    />
+                    <div className="w-9 h-5 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-amber-500"></div>
+                  </label>
+                </div>
               </div>
 
               </form>
@@ -7321,6 +7725,202 @@ export default function App() {
         </div>
       )}
 
+      {/* Preset Channel Logo Knowledge Base Browser Modal */}
+      {isPresetLogoModalOpen && (
+        <div 
+          className="fixed inset-0 z-[105] bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-3 sm:p-5 select-none"
+          id="preset_logo_browser_modal"
+          onClick={() => setIsPresetLogoModalOpen(false)}
+        >
+          <div 
+            className="bg-white rounded-2xl max-w-4xl w-full max-h-[90vh] flex flex-col shadow-2xl border border-slate-200 overflow-hidden animate-fade-in animate-duration-200"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Modal Header */}
+            <div className="px-5 py-4 bg-gradient-to-r from-slate-50 to-indigo-50/40 border-b border-slate-100 flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="w-9 h-9 rounded-xl bg-indigo-600 text-white flex items-center justify-center shadow-xs">
+                  <BookOpen className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="font-extrabold text-slate-800 text-sm sm:text-base flex items-center gap-2">
+                    预置频道台标信息库
+                    <span className="text-[11px] font-bold text-indigo-700 bg-indigo-100/80 px-2 py-0.5 rounded-full">
+                      收录 {PRESET_LOGOS.length} 个官方高清台标
+                    </span>
+                  </h3>
+                  <p className="text-[11px] text-slate-500 font-medium">
+                    涵盖央视频道、各省卫视、港澳台、国际名台及全国广播电台官方高清透明图库
+                  </p>
+                </div>
+              </div>
+              <button 
+                type="button"
+                onClick={() => setIsPresetLogoModalOpen(false)}
+                className="text-slate-400 hover:text-slate-600 p-1.5 hover:bg-slate-100 rounded-xl transition cursor-pointer"
+                title="关闭"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Toolbar: Search input & Category pills */}
+            <div className="p-4 border-b border-slate-100 bg-slate-50/50 space-y-3">
+              <div className="relative">
+                <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+                <input 
+                  type="text"
+                  value={presetLogoSearch}
+                  onChange={(e) => setPresetLogoSearch(e.target.value)}
+                  placeholder="快速检索台标：支持中文名称、拼音缩写、频道呼号（如 CCTV-1, 湖南卫视, 翡翠台, BBC, 动感101）..."
+                  className="w-full pl-10 pr-9 py-2.5 bg-white border border-slate-200 rounded-xl text-xs text-slate-800 placeholder-slate-400 focus:outline-none focus:border-indigo-500 shadow-2xs font-sans"
+                  autoFocus
+                />
+                {presetLogoSearch && (
+                  <button
+                    type="button"
+                    onClick={() => setPresetLogoSearch("")}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 cursor-pointer"
+                  >
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+                )}
+              </div>
+
+              {/* Categories horizontal scroll tabs */}
+              <div className="flex items-center gap-1.5 overflow-x-auto pb-1 scrollbar-none text-xs">
+                {PRESET_CATEGORIES.map((cat) => {
+                  const isActive = presetLogoCategory === cat.key;
+                  const count = cat.key === "all" ? PRESET_LOGOS.length : PRESET_LOGOS.filter(p => p.category === cat.key).length;
+                  return (
+                    <button
+                      key={cat.key}
+                      type="button"
+                      onClick={() => setPresetLogoCategory(cat.key)}
+                      className={`px-3 py-1.5 rounded-lg text-xs font-bold transition flex items-center gap-1.5 shrink-0 cursor-pointer ${
+                        isActive 
+                          ? "bg-indigo-600 text-white shadow-xs" 
+                          : "bg-white text-slate-600 border border-slate-200 hover:border-indigo-300 hover:bg-indigo-50/50"
+                      }`}
+                    >
+                      <span>{cat.label}</span>
+                      <span className={`text-[10px] px-1.5 py-0.2 rounded-full ${isActive ? "bg-indigo-700 text-indigo-100" : "bg-slate-100 text-slate-500"}`}>
+                        {count}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Results Grid */}
+            <div className="flex-1 overflow-y-auto p-4 max-h-[55vh]">
+              {filteredPresetLogos.length === 0 ? (
+                <div className="flex flex-col items-center justify-center p-12 text-slate-400 space-y-2">
+                  <ImageIcon className="w-12 h-12 stroke-[1] text-slate-300" />
+                  <p className="text-xs font-bold text-slate-600">未检索到与「{presetLogoSearch}」匹配的预置台标</p>
+                  <p className="text-[11px] text-slate-400">可尝试简短关键词、拼音或直接在输入框粘贴自定义台标 URL 直链</p>
+                </div>
+              ) : (
+                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3">
+                  {filteredPresetLogos.map((item) => {
+                    const isCurrentFormLogo = channelForm.logo === item.logo;
+                    return (
+                      <div
+                        key={item.id}
+                        onClick={() => {
+                          setChannelForm(prev => ({
+                            ...prev,
+                            logo: item.logo,
+                            name: prev.name.trim() ? prev.name : item.name,
+                            frequency: prev.frequency || item.frequency || ""
+                          }));
+                          showFeedback("success", `已采纳「${item.name}」台标`);
+                          setIsPresetLogoModalOpen(false);
+                        }}
+                        className={`p-3 rounded-xl border flex flex-col items-center text-center gap-2 cursor-pointer transition relative group ${
+                          isCurrentFormLogo 
+                            ? "bg-indigo-50/80 border-indigo-500 ring-2 ring-indigo-200 shadow-xs" 
+                            : "bg-white border-slate-200 hover:border-indigo-300 hover:bg-indigo-50/30 hover:shadow-sm"
+                        }`}
+                        title="点击直接采用此台标"
+                      >
+                        {/* Logo Box */}
+                        <div className="w-14 h-14 rounded-xl bg-slate-50 border border-slate-100 flex items-center justify-center p-1 overflow-hidden relative shadow-2xs group-hover:scale-105 transition-transform duration-150">
+                          <img 
+                            src={item.logo} 
+                            alt={item.name} 
+                            referrerPolicy="no-referrer"
+                            className="w-full h-full object-contain"
+                            onError={(e) => {
+                              e.currentTarget.onerror = null;
+                              e.currentTarget.src = DEFAULT_FALLBACK_LOGO_SVG;
+                            }}
+                          />
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              openEnlargedLogo({
+                                url: item.logo,
+                                title: `${item.name} - 预置高清台标`,
+                                subtitle: `${item.categoryLabel} ${item.frequency ? `· ${item.frequency}` : ""}`
+                              });
+                            }}
+                            className="absolute inset-0 bg-slate-900/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center text-white"
+                            title="放大查看原图"
+                          >
+                            <ZoomIn className="w-4 h-4 drop-shadow-xs" />
+                          </button>
+                        </div>
+
+                        {/* Title & Badge */}
+                        <div className="w-full min-w-0 space-y-0.5">
+                          <p className="font-bold text-xs text-slate-800 truncate" title={item.name}>
+                            {item.name}
+                          </p>
+                          <div className="flex items-center justify-center gap-1 flex-wrap">
+                            <span className="text-[9px] font-semibold text-indigo-700 bg-indigo-50 px-1.5 py-0.2 rounded border border-indigo-100">
+                              {item.categoryLabel}
+                            </span>
+                            {item.frequency && (
+                              <span className="text-[9px] font-mono text-slate-500 bg-slate-100 px-1 py-0.2 rounded">
+                                {item.frequency}
+                              </span>
+                            )}
+                          </div>
+                        </div>
+
+                        {/* Selected Indicator */}
+                        {isCurrentFormLogo && (
+                          <div className="absolute top-1.5 right-1.5 bg-indigo-600 text-white rounded-full p-0.5 shadow-2xs">
+                            <Check className="w-3 h-3" />
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+
+            {/* Modal Footer */}
+            <div className="px-5 py-3 bg-slate-50 border-t border-slate-100 flex flex-col sm:flex-row items-center justify-between gap-2.5 text-xs">
+              <span className="text-slate-500 text-[11px]">
+                💡 提示：点击任意台标卡片即可自动应用；台标均通过高速 CDN 加载，并已内置自适应防闪烁容灾。
+              </span>
+              <button
+                type="button"
+                onClick={() => setIsPresetLogoModalOpen(false)}
+                className="px-4 py-1.5 bg-white hover:bg-slate-100 border border-slate-200 text-slate-700 rounded-xl text-xs font-bold transition cursor-pointer shrink-0"
+              >
+                关闭
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Enlarged Channel Logo Lightbox Modal */}
       {enlargedLogo && (
         <div 
@@ -7405,7 +8005,8 @@ export default function App() {
                   style={{ transform: `scale(${logoZoomScale})` }}
                   className="max-h-full max-w-full object-contain transition-transform duration-150 drop-shadow-md pointer-events-none"
                   onError={(e) => {
-                    (e.target as HTMLImageElement).src = "https://images.unsplash.com/photo-1598257006458-087169a1f08d?auto=format&fit=crop&w=400&q=80";
+                    e.currentTarget.onerror = null;
+                    e.currentTarget.src = DEFAULT_FALLBACK_LOGO_SVG;
                   }}
                 />
               </div>
