@@ -1316,7 +1316,8 @@ export default function App() {
               headers: { "Content-Type": "application/json" },
               body: JSON.stringify({
                  content,
-                 format: isCsv ? "csv" : "json"
+                 format: isCsv ? "csv" : "json",
+                 filename: file.name
               })
             });
             const result = await res.json();
@@ -1354,7 +1355,7 @@ export default function App() {
             const res = await fetch("/api/import/csv-json", {
               method: "POST",
               headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ content: text, format })
+              body: JSON.stringify({ content: text, format, filename: file.name })
             });
             const result = await res.json();
             if (result.error) {
@@ -2382,6 +2383,30 @@ export default function App() {
       showFeedback("error", err.message || "请求 AI 失败");
     } finally {
       setIsAiEnriching(false);
+    }
+  };
+
+  const [isQtfmMatching, setIsQtfmMatching] = useState(false);
+
+  const handleMatchQtfmId = async () => {
+    if (!channelForm.name.trim()) {
+      showFeedback("error", "请先输入频道电台名称");
+      return;
+    }
+    setIsQtfmMatching(true);
+    try {
+      const res = await fetch(`/api/epg/match-qtfm?name=${encodeURIComponent(channelForm.name.trim())}`);
+      const data = await res.json();
+      if (data.success && data.qtfm) {
+        setChannelForm(prev => ({ ...prev, qingtingId: data.qtfm.id }));
+        showFeedback("success", `已自动匹配蜻蜓FM电台: ${data.qtfm.name} (ID: ${data.qtfm.id})`);
+      } else {
+        showFeedback("error", `未在蜻蜓FM广播库中检索到 "${channelForm.name}" 的同名电台ID`);
+      }
+    } catch (err) {
+      showFeedback("error", "匹配失败，请检查网络");
+    } finally {
+      setIsQtfmMatching(false);
     }
   };
 
@@ -4845,18 +4870,18 @@ export default function App() {
                       <Radio className="w-5 h-5 animate-spin-hover" />
                     </div>
                     <div>
-                      <h3 className="font-bold text-slate-800 text-sm">自动同步频道创建策略</h3>
-                      <p className="text-xs text-slate-400 mt-0.5">控制在订阅源同步过程中是否自动注册不存在的新频道标签</p>
+                      <h3 className="font-bold text-slate-800 text-sm">自动同步频道与标签创建策略</h3>
+                      <p className="text-xs text-slate-400 mt-0.5">控制在数据导入和订阅源同步过程中是否自动注册不存在的新频道及新标签分类</p>
                     </div>
                   </div>
                 </div>
 
                 <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between bg-slate-50 p-4 rounded-xl border border-slate-100 hover:bg-slate-100/50 transition gap-3">
                   <div className="flex-1 pr-2">
-                    <span className="font-bold text-slate-700 text-xs block">允许在自动同步时创建新频道</span>
+                    <span className="font-bold text-slate-700 text-xs block">允许在自动同步/导入时创建新频道与标签</span>
                     <span className="text-[11px] text-slate-400 mt-0.5 block leading-relaxed">
-                      开启时：拉取订阅源后，若发现未录入的频道名称，将被自动生成并标签；<br />
-                      关闭时：不创建任何新频道，只对系统里已被添加或存在的现有频道，维护更新其对应的直播源线路。
+                      开启时：导入或同步源数据后，若发现未录入的频道名称及新分类，将被自动生成创建频道与标签；<br />
+                      关闭时：不创建任何新频道或新标签，仅对系统中已存在的现有频道维护更新其对应的直播源线路。
                     </span>
                   </div>
                   <div className="relative flex items-center shrink-0 self-end sm:self-center">
@@ -6862,7 +6887,7 @@ export default function App() {
                 </div>
               </div>
 
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 font-sans">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-start font-sans">
                 <div className="space-y-1.5 font-sans">
                   <div className="flex justify-between items-center text-xs font-bold text-slate-700">
                     <span>EPG 节目匹配 ID (epgId) *</span>
@@ -6921,18 +6946,43 @@ export default function App() {
                 <div className="space-y-1.5 font-sans">
                   <div className="flex justify-between items-center text-xs font-bold text-slate-700">
                     <span>蜻蜓FM 电台 ID (qingtingId)</span>
-                    <span className="text-[9px] bg-emerald-50 text-emerald-700 px-1.5 py-0.5 rounded font-mono font-bold border border-emerald-200/60">EPG直连</span>
+                    <div className="flex items-center gap-1.5">
+                      <button
+                        type="button"
+                        onClick={handleMatchQtfmId}
+                        disabled={isQtfmMatching}
+                        className="bg-emerald-50 hover:bg-emerald-100 text-emerald-700 text-[10px] px-2 py-0.5 rounded-lg transition font-bold border border-emerald-200/60 flex items-center gap-1 cursor-pointer disabled:opacity-50"
+                        title="根据输入的电台名称在蜻蜓FM广播库中查找对应电台ID"
+                      >
+                        {isQtfmMatching ? "匹配中..." : "🔍 自动匹配ID"}
+                      </button>
+                      <span className="text-[9px] bg-emerald-50 text-emerald-700 px-1.5 py-0.5 rounded font-mono font-bold border border-emerald-200/60 shrink-0">EPG直连</span>
+                    </div>
                   </div>
                   <input 
                     type="text"
-                    value={channelForm.qingtingId}
+                    value={channelForm.qingtingId || ""}
                     onChange={(e)=>setChannelForm({...channelForm, qingtingId: e.target.value})}
                     placeholder="如: 5022287 或 266"
                     className="w-full text-xs p-2.5 border border-slate-200 rounded-xl focus:border-indigo-500 bg-slate-50 focus:outline-none font-mono placeholder-slate-400 text-slate-800"
                   />
-                  <p className="text-[10px] text-slate-400 font-medium leading-relaxed">
-                    用于自动拉取蜻蜓FM官方最新节目单，无需匹配第三方XMLTV源。
-                  </p>
+                  {channelForm.qingtingId ? (
+                    <div className="flex items-center justify-between text-[10px] text-emerald-700 bg-emerald-50/80 p-2 rounded-xl border border-emerald-200/60 font-mono">
+                      <span className="truncate">✓ 已绑定蜻蜓FM ID: <strong className="font-bold">{channelForm.qingtingId}</strong></span>
+                      <a 
+                        href={`https://webapi.qingting.fm/api/mobile/radio/channels/${channelForm.qingtingId}/`}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="text-[9px] bg-white text-emerald-800 px-1.5 py-0.5 rounded border border-emerald-200 font-sans hover:bg-emerald-100 shrink-0 font-bold ml-1"
+                      >
+                        测试接口 ↗
+                      </a>
+                    </div>
+                  ) : (
+                    <p className="text-[10px] text-slate-400 font-medium leading-relaxed">
+                      用于自动拉取蜻蜓FM官方最新节目单，无需匹配第三方XMLTV源。
+                    </p>
+                  )}
                 </div>
               </div>
 
