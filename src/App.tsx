@@ -248,6 +248,8 @@ export default function App() {
   const [isEpgFormOpen, setIsEpgFormOpen] = useState(false);
   const [syncingEpgId, setSyncingEpgId] = useState<string | null>(null);
   const [isSyncingAllEpg, setIsSyncingAllEpg] = useState(false);
+  const [isSyncingQtfmEpg, setIsSyncingQtfmEpg] = useState(false);
+  const [isImportingQtfm, setIsImportingQtfm] = useState(false);
   const [testingStatus, setTestingStatus] = useState<TestStatus>({ status: "idle", total: 0, checked: 0, results: [] });
   const [activeTab, setActiveTab] = useState<string>("dashboard"); // dashboard, channels, sync, export, epg
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState<boolean>(false);
@@ -357,7 +359,8 @@ export default function App() {
     category: "",
     frequency: "",
     gain: 1,
-    disabled: false
+    disabled: false,
+    qingtingId: ""
   });
 
   const [isSourceModalOpen, setIsSourceModalOpen] = useState(false);
@@ -1259,7 +1262,8 @@ export default function App() {
         category: channelForm.category,
         frequency: channelForm.frequency,
         gain: channelForm.gain,
-        disabled: Boolean(channelForm.disabled)
+        disabled: Boolean(channelForm.disabled),
+        qingtingId: channelForm.qingtingId
       };
 
       const res = await fetch(endpoint, {
@@ -1874,7 +1878,8 @@ export default function App() {
       category: "",
       frequency: "",
       gain: 1,
-      disabled: false
+      disabled: false,
+      qingtingId: ""
     });
     setIsChannelModalOpen(true);
   };
@@ -1898,7 +1903,8 @@ export default function App() {
       category: ch.category || "",
       frequency: ch.frequency || "",
       gain: ch.gain || 1,
-      disabled: Boolean(ch.disabled)
+      disabled: Boolean(ch.disabled),
+      qingtingId: ch.qingtingId || ""
     });
     setIsChannelModalOpen(true);
   };
@@ -2319,6 +2325,7 @@ export default function App() {
         if (enriched.province && !newForm.province) newForm.province = enriched.province;
         if (enriched.city && !newForm.city) newForm.city = enriched.city;
         if (enriched.category && !newForm.category) newForm.category = enriched.category;
+        if (enriched.qingtingId && !newForm.qingtingId) newForm.qingtingId = enriched.qingtingId;
         
         if (enriched.suggestedCategories && Array.isArray(enriched.suggestedCategories)) {
           setAiCategorySuggestions(enriched.suggestedCategories);
@@ -3533,9 +3540,16 @@ export default function App() {
                                     )}
                                   </div>
 
-                                  <p className="text-[10px] text-slate-400 mt-1 truncate">
-                                    EPG ID: <span className="font-mono text-[9px] text-slate-500 font-bold bg-slate-100 px-1 py-0.5 rounded">{ch.epgId}</span>
-                                  </p>
+                                  <div className="flex items-center gap-1.5 mt-1 flex-wrap">
+                                    <p className="text-[10px] text-slate-400 truncate">
+                                      EPG ID: <span className="font-mono text-[9px] text-slate-500 font-bold bg-slate-100 px-1 py-0.5 rounded">{ch.epgId}</span>
+                                    </p>
+                                    {ch.qingtingId && (
+                                      <span className="font-mono text-[9px] text-emerald-700 bg-emerald-50 px-1 py-0.5 rounded border border-emerald-100 font-bold" title="蜻蜓FM电台ID">
+                                        QTFM: {ch.qingtingId}
+                                      </span>
+                                    )}
+                                  </div>
                                 </div>
                               </div>
                               
@@ -3718,7 +3732,17 @@ export default function App() {
                             <span className="flex items-center gap-1.5 flex-wrap">
                               <Clock className="w-4 h-4 mr-1 text-indigo-600" />
                               EPG 实时节目导视表 [ {epgGuide.epgId} ]
-                              {epgGuide.isSimulated && (
+                              {epgGuide.source && (
+                                <span className={`px-1.5 py-0.5 text-[9px] rounded font-bold flex items-center shrink-0 border ${epgGuide.isSimulated ? 'bg-amber-100 text-amber-800 border-amber-200' : 'bg-emerald-100 text-emerald-800 border-emerald-200'}`}>
+                                  来源: {epgGuide.source}
+                                </span>
+                              )}
+                              {epgGuide.qingtingId && (
+                                <span className="px-1.5 py-0.5 bg-teal-100 text-teal-800 border border-teal-200 text-[9px] rounded font-bold flex items-center shrink-0">
+                                  蜻蜓FM ID: {epgGuide.qingtingId}
+                                </span>
+                              )}
+                              {epgGuide.isSimulated && !epgGuide.source && (
                                 <span className="px-1.5 py-0.5 bg-amber-100 text-amber-800 border border-amber-200 text-[9px] rounded font-bold flex items-center shrink-0">
                                   ⚠️ 未成功匹配外部源 (使用本地默认模版模拟)
                                 </span>
@@ -5658,37 +5682,100 @@ export default function App() {
                       您可以添加多个外部 XMLTV/EPG 节目单来源。系统将自动批量拉取并将其解析为本地高速 JSON 缓存。在导出或查看 EPG 时，系统将会根据您频道的 EPG 标识符 (epgId) 智能交叉匹配、合并并合成最终独一无二的高速 EPG Feeds。
                     </p>
                   </div>
-                  <button
-                    onClick={async () => {
-                      setIsSyncingAllEpg(true);
-                      try {
-                        const res = await fetch("/api/epg-sources/sync-all", { method: "POST" });
-                        if (res.ok) {
-                          const data = await res.json();
-                          showFeedback("success", `合并成功！共对 ${data.count} 个源进行解析，其中 ${data.successCount} 个成功。`);
-                          fetchEpgSources();
+                  <div className="flex flex-wrap gap-2 shrink-0">
+                    <button
+                      onClick={async () => {
+                        setIsSyncingQtfmEpg(true);
+                        try {
+                          const res = await fetch("/api/epg/sync-qtfm", { method: "POST" });
+                          if (res.ok) {
+                            const data = await res.json();
+                            showFeedback("success", data.message || "蜻蜓FM EPG 同步完成");
+                          } else {
+                            showFeedback("error", "蜻蜓FM EPG 同步失败");
+                          }
+                        } catch (err) {
+                          showFeedback("error", "网络请求异常");
+                        } finally {
+                          setIsSyncingQtfmEpg(false);
                         }
-                      } catch (err) {
-                        showFeedback("error", "一键拉取合并失败");
-                      } finally {
-                        setIsSyncingAllEpg(false);
-                      }
-                    }}
-                    disabled={isSyncingAllEpg}
-                    className="flex-shrink-0 flex items-center justify-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-500 disabled:bg-blue-800/80 disabled:text-slate-300 rounded-xl text-xs font-bold transition cursor-pointer text-white"
-                  >
-                    {isSyncingAllEpg ? (
-                      <>
-                        <span className="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin"></span>
-                        <span>正在拉取外部源并合并...</span>
-                      </>
-                    ) : (
-                      <>
-                        <Zap className="w-3.5 h-3.5" />
-                        <span>一键全网同步合并所有激活源</span>
-                      </>
-                    )}
-                  </button>
+                      }}
+                      disabled={isSyncingQtfmEpg}
+                      className="flex items-center justify-center gap-1.5 px-3 py-2 bg-emerald-600 hover:bg-emerald-500 disabled:bg-emerald-800 rounded-xl text-xs font-bold transition cursor-pointer text-white"
+                    >
+                      {isSyncingQtfmEpg ? (
+                        <>
+                          <span className="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin"></span>
+                          <span>同步蜻蜓FM...</span>
+                        </>
+                      ) : (
+                        <>
+                          <Radio className="w-3.5 h-3.5" />
+                          <span>同步 蜻蜓FM EPG</span>
+                        </>
+                      )}
+                    </button>
+
+                    <button
+                      onClick={async () => {
+                        setIsImportingQtfm(true);
+                        try {
+                          const res = await fetch("/api/channels/import-qtfm", { method: "POST" });
+                          if (res.ok) {
+                            const data = await res.json();
+                            showFeedback("success", data.message || "基础电台数据导入成功");
+                            fetchData();
+                          } else {
+                            showFeedback("error", "导入蜻蜓FM数据失败");
+                          }
+                        } catch (err) {
+                          showFeedback("error", "网络请求异常");
+                        } finally {
+                          setIsImportingQtfm(false);
+                        }
+                      }}
+                      disabled={isImportingQtfm}
+                      className="flex items-center justify-center gap-1.5 px-3 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 rounded-xl text-xs font-bold transition cursor-pointer"
+                    >
+                      {isImportingQtfm ? (
+                        <span>导入中...</span>
+                      ) : (
+                        <span>导入 蜻蜓FM 基础电台</span>
+                      )}
+                    </button>
+
+                    <button
+                      onClick={async () => {
+                        setIsSyncingAllEpg(true);
+                        try {
+                          const res = await fetch("/api/epg-sources/sync-all", { method: "POST" });
+                          if (res.ok) {
+                            const data = await res.json();
+                            showFeedback("success", `合并成功！共对 ${data.count} 个源进行解析，其中 ${data.successCount} 个成功。`);
+                            fetchEpgSources();
+                          }
+                        } catch (err) {
+                          showFeedback("error", "一键拉取合并失败");
+                        } finally {
+                          setIsSyncingAllEpg(false);
+                        }
+                      }}
+                      disabled={isSyncingAllEpg}
+                      className="flex items-center justify-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-500 disabled:bg-blue-800/80 disabled:text-slate-300 rounded-xl text-xs font-bold transition cursor-pointer text-white"
+                    >
+                      {isSyncingAllEpg ? (
+                        <>
+                          <span className="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin"></span>
+                          <span>正在拉取外部源并合并...</span>
+                        </>
+                      ) : (
+                        <>
+                          <Zap className="w-3.5 h-3.5" />
+                          <span>一键同步 XMLTV 外部源</span>
+                        </>
+                      )}
+                    </button>
+                  </div>
                 </div>
 
                 <div className="pt-4 border-t border-slate-800 flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
@@ -6555,7 +6642,7 @@ export default function App() {
       {/* 1. Modal Dialog: Create/Update Channel */}
       {isChannelModalOpen && (
         <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 font-sans" id="channel_modal">
-          <div className="bg-white rounded-2xl max-w-md w-full shadow-2xl border border-slate-100 flex flex-col animate-fade-in font-sans max-h-[90vh]">
+          <div className="bg-white rounded-2xl max-w-2xl w-full shadow-2xl border border-slate-100 flex flex-col animate-fade-in font-sans max-h-[90vh]">
             <div className="flex justify-between items-center px-6 py-5 border-b border-slate-100 flex-shrink-0">
               <h3 className="text-sm font-bold text-slate-800">{editingChannel ? "修改电台元数据" : "建立新收录电台"}</h3>
               <button type="button" className="text-slate-400 hover:text-slate-600 font-bold font-sans" onClick={()=>setIsChannelModalOpen(false)}>✕</button>
@@ -6775,61 +6862,78 @@ export default function App() {
                 </div>
               </div>
 
-              <div className="space-y-1.5 font-sans">
-                <label className="flex justify-between items-center">
-                  <span>EPG 节目匹配 ID (epgId) *</span>
-                </label>
-                <div className="flex gap-2 w-full md:w-auto">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 font-sans">
+                <div className="space-y-1.5 font-sans">
+                  <div className="flex justify-between items-center text-xs font-bold text-slate-700">
+                    <span>EPG 节目匹配 ID (epgId) *</span>
+                    <button
+                      type="button"
+                      onClick={() => runAiRecommend(channelForm.id || "", channelForm.name)}
+                      disabled={aiRecommendLoading}
+                      className="bg-indigo-50 hover:bg-indigo-100 text-indigo-700 text-[10px] px-2 py-0.5 rounded-lg transition font-bold border border-indigo-200/60 flex items-center gap-1 cursor-pointer disabled:bg-slate-100 disabled:text-slate-400"
+                    >
+                      {aiRecommendLoading ? "AI匹配中..." : "🤖 AI 匹配"}
+                    </button>
+                  </div>
                   <input 
                     type="text"
                     required
                     value={channelForm.epgId}
                     onChange={(e)=>setChannelForm({...channelForm, epgId: e.target.value})}
                     placeholder="如: cctv1"
-                    className="flex-1 text-xs p-2.5 border border-slate-200 rounded-xl focus:border-indigo-500 bg-slate-50 focus:outline-none font-mono placeholder-slate-400 text-slate-800"
+                    className="w-full text-xs p-2.5 border border-slate-200 rounded-xl focus:border-indigo-500 bg-slate-50 focus:outline-none font-mono placeholder-slate-400 text-slate-800"
                   />
-                  <button
-                    type="button"
-                    onClick={() => runAiRecommend(channelForm.id || "", channelForm.name)}
-                    disabled={aiRecommendLoading}
-                    className="bg-indigo-50 hover:bg-indigo-100 text-indigo-700 text-xs px-3 py-1.5 rounded-xl transition font-bold border border-indigo-200/50 flex items-center justify-center cursor-pointer disabled:bg-slate-100 disabled:text-slate-400"
-                  >
-                    {aiRecommendLoading ? "🤖 AI匹配中..." : "🤖 AI 智能匹配"}
-                  </button>
+
+                  {aiRecommendError && (
+                    <p className="text-[10px] text-rose-600 font-bold mt-1 leading-relaxed bg-rose-50 p-2 rounded-lg border border-rose-100 font-sans">{aiRecommendError}</p>
+                  )}
+
+                  {aiRecommends.length > 0 && (
+                    <div className="mt-2 bg-indigo-50/30 p-2.5 rounded-xl border border-indigo-100 space-y-2 max-h-48 overflow-y-auto font-sans">
+                      <p className="text-[10px] font-bold text-indigo-800">Gemini AI 智能推荐匹配 (点击采纳)：</p>
+                      <div className="flex flex-col gap-1.5 font-sans">
+                        {aiRecommends.map((rec) => (
+                          <div 
+                            key={rec.epgId}
+                            onClick={() => {
+                              setChannelForm({ ...channelForm, epgId: rec.epgId });
+                              showFeedback("success", `已填充 "${rec.epgId}"`);
+                            }}
+                            className="bg-white hover:bg-indigo-50 p-2 rounded-lg border border-indigo-100/50 flex justify-between items-center transition cursor-pointer hover:border-indigo-300"
+                          >
+                            <div className="space-y-0.5">
+                              <div className="flex items-center gap-1.5">
+                                <span className="font-mono text-[10px] font-bold text-indigo-700 bg-indigo-50 px-1.5 py-0.5 rounded">{rec.epgId}</span>
+                                <span className="font-bold text-slate-700 text-[10px]">({rec.displayName})</span>
+                              </div>
+                              <p className="text-[9px] text-slate-400 leading-normal">{rec.reason}</p>
+                            </div>
+                            <span className="text-[9px] bg-emerald-50 text-emerald-700 px-1.5 py-0.5 font-bold rounded-sm">
+                              {(rec.confidence * 100).toFixed(0)}%
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
                 </div>
 
-                {aiRecommendError && (
-                  <p className="text-[10px] text-rose-600 font-bold mt-1 leading-relaxed bg-rose-50 p-2 rounded-lg border border-rose-100 font-sans">{aiRecommendError}</p>
-                )}
-
-                {aiRecommends.length > 0 && (
-                  <div className="mt-2 bg-indigo-50/30 p-2.5 rounded-xl border border-indigo-100 space-y-2 max-h-48 overflow-y-auto font-sans">
-                    <p className="text-[10px] font-bold text-indigo-800">Gemini AI 智能推荐匹配 (点击直接采纳填入)：</p>
-                    <div className="flex flex-col gap-1.5 font-sans">
-                      {aiRecommends.map((rec) => (
-                        <div 
-                          key={rec.epgId}
-                          onClick={() => {
-                            setChannelForm({ ...channelForm, epgId: rec.epgId });
-                            showFeedback("success", `已填充 "${rec.epgId}"`);
-                          }}
-                          className="bg-white hover:bg-indigo-50 p-2 rounded-lg border border-indigo-100/50 flex justify-between items-center transition cursor-pointer hover:border-indigo-300"
-                        >
-                          <div className="space-y-0.5">
-                            <div className="flex items-center gap-1.5">
-                              <span className="font-mono text-[10px] font-bold text-indigo-700 bg-indigo-50 px-1.5 py-0.5 rounded">{rec.epgId}</span>
-                              <span className="font-bold text-slate-700 text-[10px]">({rec.displayName})</span>
-                            </div>
-                            <p className="text-[9px] text-slate-400 leading-normal">{rec.reason}</p>
-                          </div>
-                          <span className="text-[9px] bg-emerald-50 text-emerald-700 px-1.5 py-0.5 font-bold rounded-sm">
-                            {(rec.confidence * 100).toFixed(0)}%
-                          </span>
-                        </div>
-                      ))}
-                    </div>
+                <div className="space-y-1.5 font-sans">
+                  <div className="flex justify-between items-center text-xs font-bold text-slate-700">
+                    <span>蜻蜓FM 电台 ID (qingtingId)</span>
+                    <span className="text-[9px] bg-emerald-50 text-emerald-700 px-1.5 py-0.5 rounded font-mono font-bold border border-emerald-200/60">EPG直连</span>
                   </div>
-                )}
+                  <input 
+                    type="text"
+                    value={channelForm.qingtingId}
+                    onChange={(e)=>setChannelForm({...channelForm, qingtingId: e.target.value})}
+                    placeholder="如: 5022287 或 266"
+                    className="w-full text-xs p-2.5 border border-slate-200 rounded-xl focus:border-indigo-500 bg-slate-50 focus:outline-none font-mono placeholder-slate-400 text-slate-800"
+                  />
+                  <p className="text-[10px] text-slate-400 font-medium leading-relaxed">
+                    用于自动拉取蜻蜓FM官方最新节目单，无需匹配第三方XMLTV源。
+                  </p>
+                </div>
               </div>
 
               {/* Logo Section with Preset Library, Live Preview, and Candidate Gallery */}

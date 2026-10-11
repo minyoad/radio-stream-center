@@ -48,6 +48,7 @@ interface Channel {
   frequency?: string;
   gain?: number;
   disabled?: boolean;
+  qingtingId?: string;
   sources: LiveSource[];
 }
 
@@ -184,7 +185,14 @@ function initSqlite() {
       category TEXT,
       frequency TEXT,
       gain REAL DEFAULT 1,
-      disabled INTEGER DEFAULT 0
+      disabled INTEGER DEFAULT 0,
+      qingtingId TEXT
+    );
+    CREATE TABLE IF NOT EXISTS qtfm_epg_cache (
+      qingtingId TEXT PRIMARY KEY,
+      channelName TEXT,
+      updatedAt TEXT,
+      programsJson TEXT
     );
     CREATE TABLE IF NOT EXISTS sources (
       id TEXT PRIMARY KEY,
@@ -314,6 +322,18 @@ function initSqlite() {
     }
   }
 
+  // Migration: Add qingtingId to channels table if it doesn't exist
+  try {
+    db.prepare("SELECT qingtingId FROM channels LIMIT 1").get();
+  } catch (_) {
+    try {
+      db.exec("ALTER TABLE channels ADD COLUMN qingtingId TEXT;");
+      console.log("[Migration] SQLite 'channels' qingtingId column added!");
+    } catch (e: any) {
+      console.error("[Migration Error] failed to add qingtingId to channels:", e.message);
+    }
+  }
+
   // Migration: Add description, category to sync_configs table if they don't exist
   try {
     db.prepare("SELECT description FROM sync_configs LIMIT 1").get();
@@ -333,6 +353,7 @@ function initSqlite() {
     VALUES (?, ?, ?, ?, ?)
   `);
   insertCronJob.run("job_epg_sync", "EPG 自动同步", "02:00", 1440, 0);
+  insertCronJob.run("job_qtfm_epg_sync", "蜻蜓FM EPG 自动同步", "01:00", 360, 1);
   insertCronJob.run("job_github_import", "GitHub 源自动导入", "03:00", 1440, 0);
   insertCronJob.run("job_check_lines", "直播源线路可用性检测", "04:00", 1440, 0);
   insertCronJob.run("job_system_backup", "系统数据自动硬备份", "05:00", 1440, 0);
@@ -405,6 +426,126 @@ function normalizeChannelName(name: string): string {
   return clean
     .replace(/[-_.\s]+/g, "")
     .replace(/(hd|uhd|fhd|ud|4k|8k|高清|超清|标清|sdi|channel|tv)/g, "");
+}
+
+interface QtfmStation {
+  id: string;
+  name: string;
+  description: string;
+  logo: string;
+  province: string;
+  city: string;
+  category: string;
+  streamId?: string;
+}
+
+let qtfmStations: QtfmStation[] = [];
+function loadQtfmStations() {
+  try {
+    const qtfmPath = path.join(process.cwd(), "qtfm.csv");
+    if (fs.existsSync(qtfmPath)) {
+      const content = fs.readFileSync(qtfmPath, "utf-8");
+      const records = parseCSV(content, { columns: true, skip_empty_lines: true });
+      qtfmStations = records.map((r: any) => ({
+        id: r["电台ID"] || "",
+        name: (r["电台名称"] || "").trim(),
+        description: (r["电台描述"] || "").trim(),
+        logo: (r["封面图"] || "").trim(),
+        province: (r["所属省份"] || "").trim(),
+        city: (r["所属城市"] || "").trim(),
+        category: (r["所属分类"] || "").trim(),
+        streamId: (r["直播流ID"] || "").trim(),
+      })).filter((s: QtfmStation) => s.name);
+      console.log(`[QTFM] Loaded ${qtfmStations.length} radio stations from qtfm.csv`);
+    }
+  } catch (err) {
+    console.error("[QTFM] Failed to load qtfm.csv:", err);
+  }
+}
+loadQtfmStations();
+
+function findQtfmStation(name: string): QtfmStation | null {
+  if (!name || qtfmStations.length === 0) return null;
+  const clean = name.toLowerCase().replace(/[\s\-_()（）\[\]【】·.]+/g, "");
+  
+  // 1. Exact match
+  const exact = qtfmStations.find(s => s.name === name || s.name.toLowerCase() === name.toLowerCase());
+  if (exact) return exact;
+
+  // 2. Normalized exact match
+  const normExact = qtfmStations.find(s => s.name.toLowerCase().replace(/[\s\-_()（）\[\]【】·.]+/g, "") === clean);
+  if (normExact) return normExact;
+
+  // 3. Substring match
+  const sub = qtfmStations.find(s => {
+    const sClean = s.name.toLowerCase().replace(/[\s\-_()（）\[\]【】·.]+/g, "");
+    return sClean.includes(clean) || clean.includes(sClean);
+  });
+  if (sub) return sub;
+
+  return null;
+}
+
+// Fetch live EPG from Qingting FM API: https://webapi.qingting.fm/api/mobile/radio/channels/{qingtingId}/
+async function fetchQingtingEpg(qingtingId: string): Promise<{ channelName: string; programs: any[] } | null> {
+  if (!qingtingId) return null;
+  try {
+    const url = `https://webapi.qingting.fm/api/mobile/radio/channels/${qingtingId}/`;
+    const resp = await fetch(url, {
+      headers: {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+      }
+    });
+    if (resp.ok) {
+      const json = await resp.json();
+      const rawProgs = json?.playBill?.today || json?.data?.programs || [];
+      const channelName = json?.channelInfo?.name || json?.data?.channelName || "";
+      if (Array.isArray(rawProgs) && rawProgs.length > 0) {
+        const formatted = rawProgs.map((p: any) => ({
+          time: p.durationStr || (p.mediaParams?.startTime ? `${p.mediaParams.startTime.slice(0, 2)}:${p.mediaParams.startTime.slice(2, 4)}` : "00:00"),
+          title: p.title || "暂无节目",
+          broadcaster: p.broadcasterNames || "",
+          durationStr: p.durationStr || "",
+          from: p.from || ""
+        }));
+        return {
+          channelName,
+          programs: formatted
+        };
+      }
+    }
+  } catch (e: any) {
+    console.error(`[QTFM EPG Fetch Error] Failed to fetch for qingtingId ${qingtingId}:`, e.message || e);
+  }
+  return null;
+}
+
+// Scheduled & manual bulk sync task for all Qingting FM radio channels
+async function syncAllQingtingEpgs(): Promise<{ successCount: number; totalCount: number }> {
+  const targets = channels.filter((c) => c.qingtingId || findQtfmStation(c.name)?.id);
+  let successCount = 0;
+  const saveEpgStmt = db.prepare("INSERT OR REPLACE INTO qtfm_epg_cache (qingtingId, channelName, updatedAt, programsJson) VALUES (?, ?, ?, ?)");
+
+  for (const ch of targets) {
+    const qId = ch.qingtingId || findQtfmStation(ch.name)?.id;
+    if (!qId) continue;
+    if (!ch.qingtingId) {
+      ch.qingtingId = qId;
+      try { db.prepare("UPDATE channels SET qingtingId = ? WHERE id = ?").run(qId, ch.id); } catch (_) {}
+    }
+    const data = await fetchQingtingEpg(qId);
+    if (data && data.programs && data.programs.length > 0) {
+      successCount++;
+      const now = new Date().toISOString();
+      try {
+        saveEpgStmt.run(qId, data.channelName || ch.name, now, JSON.stringify(data.programs));
+      } catch (err: any) {
+        console.error(`[QTFM Cache Save Error] for qingtingId ${qId}:`, err.message || err);
+      }
+    }
+  }
+  console.log(`[QTFM Cron Task] Synced EPG for ${successCount}/${targets.length} Qingting FM radio channels.`);
+  return { successCount, totalCount: targets.length };
 }
 
 // Split category string into individual clean category names (e.g. "双语台、音乐台" -> ["双语台", "音乐台"])
@@ -790,13 +931,15 @@ function loadData() {
           frequency: ch.frequency || "",
           gain: ch.gain || 1,
           disabled: Boolean(ch.disabled),
+          qingtingId: ch.qingtingId || "",
           sources: sourceMap.get(ch.id) || []
         };
       });
 
-      // Auto-sanitize trailing commas and extra punctuation from channel names & alias arrays
+      // Auto-sanitize trailing commas, extra punctuation & auto-link qingtingId
       let cleanedCount = 0;
-      const sanitizeChannelStmt = db.prepare("UPDATE channels SET name = ?, alias = ? WHERE id = ?");
+      let qingtingLinkedCount = 0;
+      const sanitizeChannelStmt = db.prepare("UPDATE channels SET name = ?, alias = ?, qingtingId = ? WHERE id = ?");
 
       channels.forEach((ch) => {
         let modified = false;
@@ -804,6 +947,7 @@ function loadData() {
         if (cleanedName && cleanedName !== ch.name) {
           ch.name = cleanedName;
           modified = true;
+          cleanedCount++;
         }
 
         let cleanedAliases: string[] = [];
@@ -821,18 +965,27 @@ function loadData() {
           modified = true;
         }
 
+        // Auto-link qingtingId from qtfm.csv if missing
+        if (!ch.qingtingId) {
+          const qtfmMatch = findQtfmStation(ch.name);
+          if (qtfmMatch && qtfmMatch.id) {
+            ch.qingtingId = qtfmMatch.id;
+            modified = true;
+            qingtingLinkedCount++;
+          }
+        }
+
         if (modified) {
-          cleanedCount++;
           try {
-            sanitizeChannelStmt.run(ch.name, JSON.stringify(ch.alias), ch.id);
+            sanitizeChannelStmt.run(ch.name, JSON.stringify(ch.alias), ch.qingtingId || "", ch.id);
           } catch (e: any) {
             console.error(`[Sanitize Error] Failed to update channel ${ch.id}:`, e.message || e);
           }
         }
       });
 
-      if (cleanedCount > 0) {
-        console.log(`[Data Sanitize] Cleaned trailing commas/punctuation from ${cleanedCount} channel records.`);
+      if (cleanedCount > 0 || qingtingLinkedCount > 0) {
+        console.log(`[Data Sanitize] Cleaned ${cleanedCount} channel names and auto-linked ${qingtingLinkedCount} channels to Qingting FM IDs.`);
       }
 
       // Auto-repair composite tags (e.g. "双语台、音乐台" -> "双语台" and "音乐台")
@@ -1053,7 +1206,7 @@ function saveData() {
       db.exec("DELETE FROM channels");
       db.exec("DELETE FROM sources");
 
-      const insertChannel = db.prepare("INSERT INTO channels (id, name, logo, tagIds, alias, epgId, description, province, city, category, frequency, gain, disabled) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
+      const insertChannel = db.prepare("INSERT INTO channels (id, name, logo, tagIds, alias, epgId, description, province, city, category, frequency, gain, disabled, qingtingId) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
       const insertSource = db.prepare(`
         INSERT INTO sources (id, channelId, url, status, latency, lastChecked)
         VALUES (?, ?, ?, ?, ?, ?)
@@ -1073,7 +1226,8 @@ function saveData() {
           ch.category || "",
           ch.frequency || "",
           ch.gain || 1,
-          ch.disabled ? 1 : 0
+          ch.disabled ? 1 : 0,
+          ch.qingtingId || ""
         );
 
         if (ch.sources && ch.sources.length > 0) {
@@ -2115,7 +2269,11 @@ async function runCronJob(job: any) {
         const success = await performEpgSync(source);
         if (success) successCount++;
       }
-      insertLog.run(logId, job.id, nowStr, "success", `成功同步 ${successCount}/${activeSources.length} 个 EPG 源`);
+      const qtfmRes = await syncAllQingtingEpgs();
+      insertLog.run(logId, job.id, nowStr, "success", `成功同步 ${successCount}/${activeSources.length} 个 XMLTV EPG 源，以及 ${qtfmRes.successCount}/${qtfmRes.totalCount} 个 蜻蜓FM 频道 EPG`);
+    } else if (job.id === "job_qtfm_epg_sync") {
+      const qtfmRes = await syncAllQingtingEpgs();
+      insertLog.run(logId, job.id, nowStr, "success", `成功同步 ${qtfmRes.successCount}/${qtfmRes.totalCount} 个 蜻蜓FM 频道 EPG 节目表`);
     } else if (job.id === "job_github_import") {
       let successCount = 0;
       const activeConfigs = syncConfigs.filter((c) => !c.disabled);
@@ -3022,65 +3180,6 @@ async function startServer() {
     }
   });
 
-
-interface QtfmStation {
-  id: string;
-  name: string;
-  description: string;
-  logo: string;
-  province: string;
-  city: string;
-  category: string;
-  streamId?: string;
-}
-
-let qtfmStations: QtfmStation[] = [];
-function loadQtfmStations() {
-  try {
-    const qtfmPath = path.join(process.cwd(), "qtfm.csv");
-    if (fs.existsSync(qtfmPath)) {
-      const content = fs.readFileSync(qtfmPath, "utf-8");
-      const records = parseCSV(content, { columns: true, skip_empty_lines: true });
-      qtfmStations = records.map((r: any) => ({
-        id: r["电台ID"] || "",
-        name: (r["电台名称"] || "").trim(),
-        description: (r["电台描述"] || "").trim(),
-        logo: (r["封面图"] || "").trim(),
-        province: (r["所属省份"] || "").trim(),
-        city: (r["所属城市"] || "").trim(),
-        category: (r["所属分类"] || "").trim(),
-        streamId: (r["直播流ID"] || "").trim(),
-      })).filter((s: QtfmStation) => s.name);
-      console.log(`[QTFM] Loaded ${qtfmStations.length} radio stations from qtfm.csv`);
-    }
-  } catch (err) {
-    console.error("[QTFM] Failed to load qtfm.csv:", err);
-  }
-}
-loadQtfmStations();
-
-function findQtfmStation(name: string): QtfmStation | null {
-  if (!name || qtfmStations.length === 0) return null;
-  const clean = name.toLowerCase().replace(/[\s\-_()（）\[\]【】·.]+/g, "");
-  
-  // 1. Exact match
-  const exact = qtfmStations.find(s => s.name === name || s.name.toLowerCase() === name.toLowerCase());
-  if (exact) return exact;
-
-  // 2. Normalized exact match
-  const normExact = qtfmStations.find(s => s.name.toLowerCase().replace(/[\s\-_()（）\[\]【】·.]+/g, "") === clean);
-  if (normExact) return normExact;
-
-  // 3. Substring match
-  const sub = qtfmStations.find(s => {
-    const sClean = s.name.toLowerCase().replace(/[\s\-_()（）\[\]【】·.]+/g, "");
-    return sClean.includes(clean) || clean.includes(sClean);
-  });
-  if (sub) return sub;
-
-  return null;
-}
-
 async function fetchOnlineRadioBrowserLogos(name: string): Promise<Array<{ url: string; title: string; source: string; tags?: string }>> {
   const results: Array<{ url: string; title: string; source: string; tags?: string }> = [];
   try {
@@ -3230,6 +3329,7 @@ ${qtfmMatch ? `本地电台库先验参考信息:\n${JSON.stringify({ name: qtfm
           ...(currentData?.alias ? (Array.isArray(currentData.alias) ? currentData.alias : String(currentData.alias).split(',').map((s: string) => s.trim())) : [])
         ].filter(Boolean))),
         epgId: aiResult?.epgId || currentData?.epgId || generateDefaultEpgId(name),
+        qingtingId: qtfmMatch?.id || currentData?.qingtingId || "",
         source: aiResult ? (qtfmMatch ? "AI + 本地电台库" : "AI 智能解析") : (qtfmMatch ? "本地电台知识库" : "智能推导"),
         warning: !aiResult && aiErrorMsg ? `AI 接口提示: ${aiErrorMsg}，已使用内置数据库推导` : undefined
       };
@@ -3473,7 +3573,7 @@ ${qtfmMatch ? `本地电台库先验参考信息:\n${JSON.stringify({ name: qtfm
   });
 
   app.post("/api/channels", (req, res) => {
-    const { name, groupIds, category, logo, alias, epgId, description, province, city, frequency, gain, disabled } = req.body;
+    const { name, groupIds, category, logo, alias, epgId, description, province, city, frequency, gain, disabled, qingtingId } = req.body;
     const cleanName = cleanChannelName(name);
     if (!cleanName) {
       return res.status(400).json({ error: "频道名称为必填项" });
@@ -3507,6 +3607,8 @@ ${qtfmMatch ? `本地电台库先验参考信息:\n${JSON.stringify({ name: qtfm
       rawAliases.map((s: string) => cleanChannelName(s)).filter(Boolean)
     ));
 
+    const resolvedQingtingId = qingtingId || findQtfmStation(cleanName)?.id || "";
+
     const newChannel: Channel = {
       id: "ch_" + Math.random().toString(36).substring(2, 10),
       name: cleanName,
@@ -3522,6 +3624,7 @@ ${qtfmMatch ? `本地电台库先验参考信息:\n${JSON.stringify({ name: qtfm
       frequency: frequency || "",
       gain: gain !== undefined ? Number(gain) : 1,
       disabled: Boolean(disabled),
+      qingtingId: resolvedQingtingId,
       sources: []
     };
 
@@ -3532,7 +3635,7 @@ ${qtfmMatch ? `本地电台库先验参考信息:\n${JSON.stringify({ name: qtfm
 
   app.put("/api/channels/:id", (req, res) => {
     const { id } = req.params;
-    const { name, groupIds, category, logo, alias, epgId, description, province, city, frequency, gain, disabled } = req.body;
+    const { name, groupIds, category, logo, alias, epgId, description, province, city, frequency, gain, disabled, qingtingId } = req.body;
 
     const channel = channels.find((c) => c.id === id);
     if (!channel) {
@@ -3542,14 +3645,6 @@ ${qtfmMatch ? `本地电台库先验参考信息:\n${JSON.stringify({ name: qtfm
     if (name) {
       const cn = cleanChannelName(name);
       if (cn) channel.name = cn;
-    }
-    
-    if (alias !== undefined) {
-      const rawAliases = Array.isArray(alias) ? alias : String(alias).split(/[,;，；]/);
-      const cleaned = Array.from(new Set(
-        rawAliases.map((s: string) => cleanChannelName(s)).filter(Boolean)
-      ));
-      channel.alias = cleaned.length > 0 ? cleaned : [channel.name];
     }
     
     if (groupIds && Array.isArray(groupIds)) {
@@ -3567,7 +3662,11 @@ ${qtfmMatch ? `本地电台库先验参考信息:\n${JSON.stringify({ name: qtfm
 
     if (logo !== undefined) channel.logo = logo;
     if (alias !== undefined) {
-      channel.alias = Array.isArray(alias) ? alias : alias.split(",").map((s: string) => s.trim());
+      const rawAliases = Array.isArray(alias) ? alias : String(alias).split(/[,;，；]/);
+      const cleaned = Array.from(new Set(
+        rawAliases.map((s: string) => cleanChannelName(s)).filter(Boolean)
+      ));
+      channel.alias = cleaned.length > 0 ? cleaned : [channel.name];
     }
     if (epgId !== undefined) channel.epgId = epgId;
     if (description !== undefined) channel.description = description;
@@ -3577,6 +3676,11 @@ ${qtfmMatch ? `本地电台库先验参考信息:\n${JSON.stringify({ name: qtfm
     if (frequency !== undefined) channel.frequency = frequency;
     if (gain !== undefined) channel.gain = gain;
     if (disabled !== undefined) channel.disabled = Boolean(disabled);
+    if (qingtingId !== undefined) {
+      channel.qingtingId = qingtingId;
+    } else if (!channel.qingtingId) {
+      channel.qingtingId = findQtfmStation(channel.name)?.id || "";
+    }
 
     saveData();
     res.json(channel);
@@ -5010,13 +5114,11 @@ ${qtfmMatch ? `本地电台库先验参考信息:\n${JSON.stringify({ name: qtfm
   });
 
   // EPG Generator Timeline Helper
-  // Yields simulated EPG guide timelines for Chinese Television stations
-  app.get("/api/epg/guide", (req, res) => {
+  // Yields Qingting FM or XMLTV or simulated EPG guide timelines
+  app.get("/api/epg/guide", async (req, res) => {
     const { channelId, date } = req.query;
     const targetDate = date ? String(date) : new Date().toISOString().split("T")[0];
 
-    // Build responsive hourly program items based on category/channelId
-    // Standard programs corresponding to general tastes
     const programsTemplate = [
       { time: "00:30", title: "深夜剧场：海外精选剧集" },
       { time: "06:00", title: "晨光早报：全球资讯连线" },
@@ -5035,7 +5137,6 @@ ${qtfmMatch ? `本地电台库先验参考信息:\n${JSON.stringify({ name: qtfm
       { time: "23:30", title: "体育集锦：巅峰竞技速览" },
     ];
 
-    // Customize items to look extremely high fidelity based on station keywords
     const getSchedulesForChannel = (chId: string, chName: string) => {
       const lowerName = (chName || "").toLowerCase();
       if (lowerName.includes("体育") || lowerName.includes("cctv5") || lowerName.includes("cctv-5")) {
@@ -5087,7 +5188,33 @@ ${qtfmMatch ? `本地电台库先验参考信息:\n${JSON.stringify({ name: qtfm
       return programsTemplate;
     };
 
-    const getEpgForChannelAndDate = (ch: Channel) => {
+    const getEpgForChannelAndDate = async (ch: Channel): Promise<{ isSimulated: boolean; source: string; programs: any[]; qingtingId?: string }> => {
+      // 1. Check Qingting FM EPG first
+      const qId = ch.qingtingId || findQtfmStation(ch.name)?.id;
+      if (qId) {
+        // Try reading from SQLite cache first
+        try {
+          const cached = db.prepare("SELECT * FROM qtfm_epg_cache WHERE qingtingId = ?").get(qId) as any;
+          if (cached && cached.programsJson) {
+            const progs = JSON.parse(cached.programsJson);
+            if (Array.isArray(progs) && progs.length > 0) {
+              return { isSimulated: false, source: "蜻蜓FM 官方接口 (缓存)", programs: progs, qingtingId: qId };
+            }
+          }
+        } catch (_) {}
+
+        // Fetch live if cache miss
+        const liveData = await fetchQingtingEpg(qId);
+        if (liveData && liveData.programs && liveData.programs.length > 0) {
+          const now = new Date().toISOString();
+          try {
+            db.prepare("INSERT OR REPLACE INTO qtfm_epg_cache (qingtingId, channelName, updatedAt, programsJson) VALUES (?, ?, ?, ?)").run(qId, liveData.channelName || ch.name, now, JSON.stringify(liveData.programs));
+          } catch (_) {}
+          return { isSimulated: false, source: "蜻蜓FM 官方接口 (实时)", programs: liveData.programs, qingtingId: qId };
+        }
+      }
+
+      // 2. Check XMLTV EPG sources
       const activeEpgSrcs = epgSources.filter(s => s.active);
       for (const src of activeEpgSrcs) {
         const cache = getEpgCache(src.id);
@@ -5106,50 +5233,120 @@ ${qtfmMatch ? `本地电台库先验参考信息:\n${JSON.stringify({ name: qtfm
             });
             if (filtered.length > 0) {
               filtered.sort((a: any, b: any) => a.time.localeCompare(b.time));
-              return filtered;
+              return { isSimulated: false, source: src.name, programs: filtered };
             }
           }
         }
       }
-      return getSchedulesForChannel(ch.id, ch.name);
+
+      // 3. Fallback simulated template
+      return { isSimulated: true, source: "系统标准模版", programs: getSchedulesForChannel(ch.id, ch.name) };
     };
 
     if (channelId) {
       const channel = channels.find((c) => c.id === channelId);
       if (channel) {
-        let isSimulated = true;
-        const activeEpgSrcs = epgSources.filter(s => s.active);
-        for (const src of activeEpgSrcs) {
-          const cache = getEpgCache(src.id);
-          if (cache) {
-            const entry = findMatchingEpgEntry(channel, cache);
-            if (entry && entry.programs && entry.programs.length > 0) {
-              isSimulated = false;
-              break;
-            }
-          }
-        }
-
+        const epgRes = await getEpgForChannelAndDate(channel);
         return res.json({
           channelId,
           channelName: channel.name,
+          qingtingId: epgRes.qingtingId || channel.qingtingId || "",
           date: targetDate,
           epgId: channel.epgId,
-          isSimulated,
-          programs: getEpgForChannelAndDate(channel),
+          isSimulated: epgRes.isSimulated,
+          source: epgRes.source,
+          programs: epgRes.programs,
         });
       }
     }
 
     // Yield mappings for all matched channels
-    const guideMap = channels.map((c) => ({
-      channelId: c.id,
-      channelName: c.name,
-      epgId: c.epgId,
-      programs: getEpgForChannelAndDate(c),
-    }));
+    const guideMap = [];
+    for (const c of channels) {
+      const epgRes = await getEpgForChannelAndDate(c);
+      guideMap.push({
+        channelId: c.id,
+        channelName: c.name,
+        qingtingId: epgRes.qingtingId || c.qingtingId || "",
+        epgId: c.epgId,
+        source: epgRes.source,
+        isSimulated: epgRes.isSimulated,
+        programs: epgRes.programs,
+      });
+    }
 
     res.json({ date: targetDate, guides: guideMap });
+  });
+
+  // Manual Trigger Endpoint to Sync Qingting FM EPGs
+  app.post("/api/epg/sync-qtfm", async (req, res) => {
+    try {
+      const result = await syncAllQingtingEpgs();
+      res.json({
+        success: true,
+        message: `成功完成 ${result.successCount}/${result.totalCount} 个蜻蜓FM电台 EPG 节目单同步`,
+        ...result
+      });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message || "蜻蜓FM EPG 同步失败" });
+    }
+  });
+
+  // Endpoint to import default radio baseline channels from qtfm.csv
+  app.post("/api/channels/import-qtfm", (req, res) => {
+    try {
+      if (qtfmStations.length === 0) {
+        return res.status(400).json({ error: "内置蜻蜓FM数据文件 (qtfm.csv) 未就绪" });
+      }
+
+      let addedCount = 0;
+      let updatedCount = 0;
+
+      for (const st of qtfmStations) {
+        let existing = channels.find(c => c.qingtingId === st.id || c.name === st.name || cleanChannelName(c.name) === cleanChannelName(st.name));
+        
+        const catTagIds = resolveCategoryTagIds(st.category || "电台");
+
+        if (existing) {
+          let changed = false;
+          if (!existing.qingtingId) { existing.qingtingId = st.id; changed = true; }
+          if (!existing.description && st.description) { existing.description = st.description; changed = true; }
+          if (!existing.logo && st.logo) { existing.logo = st.logo; changed = true; }
+          if (!existing.province && st.province) { existing.province = st.province; changed = true; }
+          if (!existing.city && st.city) { existing.city = st.city; changed = true; }
+          if (changed) updatedCount++;
+        } else {
+          const newCh: Channel = {
+            id: `ch_qtfm_${st.id}`,
+            name: cleanChannelName(st.name),
+            tagIds: catTagIds,
+            groupIds: catTagIds,
+            logo: st.logo || "",
+            alias: [cleanChannelName(st.name)],
+            epgId: generateDefaultEpgId(st.name),
+            description: st.description || "",
+            province: st.province || "",
+            city: st.city || "",
+            category: st.category || "电台",
+            qingtingId: st.id,
+            sources: []
+          };
+          channels.push(newCh);
+          addedCount++;
+        }
+      }
+
+      saveData();
+      res.json({
+        success: true,
+        message: `成功导入/同步蜻蜓FM基础电台数据：新增 ${addedCount} 个电台，关联/更新 ${updatedCount} 个已有频道`,
+        addedCount,
+        updatedCount,
+        totalChannels: channels.length
+      });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message || "导入蜻蜓FM电台数据失败" });
+    }
   });
 
   // AI Smart Auto-Correction Recommendation Endpoint

@@ -30,6 +30,7 @@ export interface Channel {
   frequency?: string;
   gain?: number;
   disabled?: boolean;
+  qingtingId?: string;
   sources: LiveSource[];
 }
 
@@ -90,5 +91,7 @@ export interface EpgGuide {
   frequency?: string;
   gain?: number;
   isSimulated?: boolean;
+  source?: string;
+  qingtingId?: string;
   programs: EpgProgram[];
 }
