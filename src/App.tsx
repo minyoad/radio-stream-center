@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from "react";
+import React, { useState, useEffect, useMemo, useRef } from "react";
 import { 
   Radio, 
   Activity, 
@@ -54,6 +54,7 @@ import {
   Tv,
   Music
 } from "lucide-react";
+import { useVirtualizer } from "@tanstack/react-virtual";
 import { Channel, LiveSource, SyncConfig, TestStatus, EpgGuide, Tag, EpgSource } from "./types";
 import DashboardView from "./components/DashboardView";
 import { PRESET_LOGOS, PRESET_CATEGORIES, searchPresetLogos, findBestPresetLogo, PresetLogoItem } from "./data/presetLogos";
@@ -73,14 +74,14 @@ export const GITHUB_RADIO_PRESETS = [
   },
   {
     id: "sc-yuechan",
-    name: "YueChan 央广与省市精选电台 (GitHub)",
-    url: "https://raw.githubusercontent.com/YueChan/Live/main/Radio.m3u",
+    name: "YueChan 央视与地方精选频道 (GitHub)",
+    url: "https://raw.githubusercontent.com/YueChan/Live/main/IPTV.m3u",
     type: "m3u" as const,
     autoSync: true,
     syncInterval: 12,
     category: "央广 / 核心频道",
-    description: "精选中国之声、经济之声、音乐之声及各省核心电台高可用线路",
-    badge: "央广高可用",
+    description: "精选央视频道、省市卫视及核心地方频道高可用线路",
+    badge: "精选高可用",
     color: "blue"
   },
   {
@@ -1216,8 +1217,8 @@ export default function App() {
       // Support dynamic creation of new free-text groups
       if (channelForm.newGroupsString.trim()) {
         const listNewNames = channelForm.newGroupsString
-          .split(/[,;，；]/)
-          .map(s => s.trim())
+          .split(/[,;，；、/|\\+&\s]+/)
+          .map(s => s.trim().replace(/^[,\s，;；:：、]+|[,\s，;；:：、]+$/g, ""))
           .filter(Boolean);
 
         for (const newName of listNewNames) {
@@ -1240,11 +1241,17 @@ export default function App() {
         }
       }
 
+      const cleanFormName = channelForm.name.trim().replace(/^[,\s，;；:：]+|[,\s，;；:：]+$/g, "");
+      const cleanAliases = channelForm.alias
+        .split(/[,;，；]/)
+        .map(s => s.trim().replace(/^[,\s，;；:：]+|[,\s，;；:：]+$/g, ""))
+        .filter(Boolean);
+
       const payload = {
-        name: channelForm.name,
+        name: cleanFormName,
         groupIds: finalGroupIds,
         logo: channelForm.logo,
-        alias: channelForm.alias.split(",").map(s => s.trim()).filter(Boolean),
+        alias: cleanAliases,
         epgId: channelForm.epgId,
         description: channelForm.description,
         province: channelForm.province,
@@ -2607,9 +2614,20 @@ export default function App() {
     return list;
   }, [channels, searchQuery, selectedCategory, channelStatusFilter, channelSortBy, tags]);
 
-  const slicedChannels = useMemo(() => {
-    return filteredChannels.slice(0, channelPage * CHANNELS_PER_PAGE);
-  }, [filteredChannels, channelPage]);
+  const channelListParentRef = useRef<HTMLDivElement>(null);
+
+  const channelVirtualizer = useVirtualizer({
+    count: filteredChannels.length,
+    getScrollElement: () => channelListParentRef.current,
+    estimateSize: () => 84,
+    overscan: 10,
+  });
+
+  useEffect(() => {
+    if (channelListParentRef.current) {
+      channelListParentRef.current.scrollTop = 0;
+    }
+  }, [searchQuery, selectedCategory, channelStatusFilter, channelSortBy]);
 
   const getExportQueries = () => {
     const parts = [];
@@ -3282,6 +3300,12 @@ export default function App() {
                           }}
                         />
                         <span className="text-xs font-bold text-slate-700">共匹配 {filteredChannels.length} 个频道</span>
+                        {filteredChannels.length >= 20 && (
+                          <span className="text-[10px] font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200/80 px-2 py-0.5 rounded-full flex items-center gap-1 shrink-0" title="已激活虚拟滚动 (Virtualization)，流畅支持 10,000+ 频道">
+                            <Zap className="w-2.5 h-2.5 fill-emerald-500 text-emerald-500" />
+                            虚拟滚动模式
+                          </span>
+                        )}
                       </div>
                       <span className="text-[10px] text-slate-400">点击任意项管理播放源</span>
                     </div>
@@ -3386,169 +3410,182 @@ export default function App() {
                     )}
                   </div>
                   
-                  <div className="flex-1 overflow-y-auto divide-y divide-slate-100">
+                  <div 
+                    ref={channelListParentRef}
+                    className="flex-1 overflow-y-auto min-h-[400px]"
+                    id="channel_list_container"
+                  >
                     {filteredChannels.length === 0 ? (
                       <div className="flex flex-col items-center justify-center p-12 text-slate-300">
                         <Radio className="w-16 h-16 stroke-[1]" />
                         <p className="text-xs font-medium mt-3">未检索到适配该条件的电台频道</p>
                       </div>
                     ) : (
-                      slicedChannels.map((ch) => {
-                        const isSelected = selectedChannel?.id === ch.id;
-                        const isChecked = selectedChannelIds.includes(ch.id);
-                        const activeCount = ch.sources.filter(s => s.status === "active").length;
-                        return (
-                          <div 
-                            key={ch.id}
-                            onClick={() => {
-                              setSelectedChannel(ch);
-                              setEpgGuide(null); // Clear EPG view since state modified
-                              setSelectedSourceIds([]); // Clear source selection
-                            }}
-                            onDoubleClick={() => {
-                              openChannelEdit(ch);
-                            }}
-                            className={`p-3.5 transition flex items-center justify-between cursor-pointer ${
-                              isSelected 
-                                ? "bg-blue-50/60 border-l-4 border-blue-600" 
-                                : ch.disabled 
-                                  ? "bg-amber-50/25 hover:bg-amber-50/50" 
-                                  : "hover:bg-slate-55/40"
-                            }`}
-                          >
-                            <div className="flex items-center gap-2.5 min-w-0 flex-1">
-                              <input
-                                type="checkbox"
-                                className="w-3.5 h-3.5 text-blue-600 border-slate-300 rounded focus:ring-blue-500 cursor-pointer flex-shrink-0"
-                                checked={isChecked}
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                }}
-                                onChange={(e) => {
-                                  if (e.target.checked) {
-                                    setSelectedChannelIds(prev => [...prev, ch.id]);
-                                  } else {
-                                    setSelectedChannelIds(prev => prev.filter(id => id !== ch.id));
-                                  }
-                                }}
-                              />
-                              <div 
-                                className="relative group/logo flex-shrink-0 cursor-zoom-in"
-                                title="点击放大查看台标"
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  openEnlargedLogo({
-                                    url: ch.logo || DEFAULT_FALLBACK_LOGO_SVG,
-                                    title: ch.name,
-                                    subtitle: [ch.frequency, (ch.tagIds || ch.groupIds || []).map(gId => tags.find(g => g.id === gId)?.name).filter(Boolean).join(", ")].filter(Boolean).join(" · ")
-                                  });
-                                }}
-                              >
-                                <ChannelLogoBadge 
-                                  logo={ch.logo} 
-                                  name={ch.name} 
-                                  sizeClass="w-8 h-8 rounded-lg" 
-                                  disabled={ch.disabled}
-                                  className="group-hover/logo:ring-2 group-hover/logo:ring-blue-400"
+                      <div
+                        style={{
+                          height: `${channelVirtualizer.getTotalSize()}px`,
+                          width: "100%",
+                          position: "relative",
+                        }}
+                      >
+                        {channelVirtualizer.getVirtualItems().map((virtualRow) => {
+                          const ch = filteredChannels[virtualRow.index];
+                          if (!ch) return null;
+                          const isSelected = selectedChannel?.id === ch.id;
+                          const isChecked = selectedChannelIds.includes(ch.id);
+                          const activeCount = ch.sources.filter(s => s.status === "active").length;
+                          return (
+                            <div 
+                              key={ch.id}
+                              ref={channelVirtualizer.measureElement}
+                              data-index={virtualRow.index}
+                              style={{
+                                position: "absolute",
+                                top: 0,
+                                left: 0,
+                                width: "100%",
+                                transform: `translateY(${virtualRow.start}px)`,
+                              }}
+                              onClick={() => {
+                                setSelectedChannel(ch);
+                                setEpgGuide(null);
+                                setSelectedSourceIds([]);
+                              }}
+                              onDoubleClick={() => {
+                                openChannelEdit(ch);
+                              }}
+                              className={`p-3.5 border-b border-slate-100 transition flex items-center justify-between cursor-pointer ${
+                                isSelected 
+                                  ? "bg-blue-50/60 border-l-4 border-blue-600" 
+                                  : ch.disabled 
+                                    ? "bg-amber-50/25 hover:bg-amber-50/50" 
+                                    : "hover:bg-slate-55/40"
+                              }`}
+                            >
+                              <div className="flex items-center gap-2.5 min-w-0 flex-1">
+                                <input
+                                  type="checkbox"
+                                  className="w-3.5 h-3.5 text-blue-600 border-slate-300 rounded focus:ring-blue-500 cursor-pointer flex-shrink-0"
+                                  checked={isChecked}
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                  }}
+                                  onChange={(e) => {
+                                    if (e.target.checked) {
+                                      setSelectedChannelIds(prev => [...prev, ch.id]);
+                                    } else {
+                                      setSelectedChannelIds(prev => prev.filter(id => id !== ch.id));
+                                    }
+                                  }}
                                 />
-                                <div className="absolute inset-0 bg-slate-900/40 opacity-0 group-hover/logo:opacity-100 transition-opacity rounded-lg flex items-center justify-center pointer-events-none">
-                                  <ZoomIn className="w-3.5 h-3.5 text-white drop-shadow-xs" />
+                                <div 
+                                  className="relative group/logo flex-shrink-0 cursor-zoom-in"
+                                  title="点击放大查看台标"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    openEnlargedLogo({
+                                      url: ch.logo || DEFAULT_FALLBACK_LOGO_SVG,
+                                      title: ch.name,
+                                      subtitle: [ch.frequency, (ch.tagIds || ch.groupIds || []).map(gId => tags.find(g => g.id === gId)?.name).filter(Boolean).join(", ")].filter(Boolean).join(" · ")
+                                    });
+                                  }}
+                                >
+                                  <ChannelLogoBadge 
+                                    logo={ch.logo} 
+                                    name={ch.name} 
+                                    sizeClass="w-8 h-8 rounded-lg" 
+                                    disabled={ch.disabled}
+                                    className="group-hover/logo:ring-2 group-hover/logo:ring-blue-400"
+                                  />
+                                  <div className="absolute inset-0 bg-slate-900/40 opacity-0 group-hover/logo:opacity-100 transition-opacity rounded-lg flex items-center justify-center pointer-events-none">
+                                    <ZoomIn className="w-3.5 h-3.5 text-white drop-shadow-xs" />
+                                  </div>
                                 </div>
-                              </div>
-                              <div className="min-w-0 flex-1">
-                                <p className="text-xs font-bold text-slate-800 flex items-center gap-1.5 truncate">
-                                  <span className={ch.disabled ? "text-slate-500 line-through decoration-slate-300" : ""}>{ch.name}</span>
-                                  {ch.disabled && (
-                                    <span className="text-[9px] font-bold bg-amber-100 text-amber-800 border border-amber-300 px-1.5 py-0.2 rounded flex items-center gap-0.5 shrink-0" title="该频道已停播（不再参与对外导出，仅留存记录）">
-                                      <PowerOff className="w-2.5 h-2.5 text-amber-700" /> 已停播
-                                    </span>
-                                  )}
-                                </p>
-                                {(ch.description || ch.province || ch.city || ch.frequency) && (
-                                  <p className="text-[10px] text-slate-500 font-normal truncate mt-0.5">
-                                    {[ch.frequency, ch.province, ch.city].filter(Boolean).join(" · ")}
-                                    {ch.description && (ch.frequency || ch.province || ch.city ? " | " : "") + ch.description}
-                                  </p>
-                                )}
-                                
-                                {/* Wrapping Tag Pills on Channel Card */}
-                                <div className="flex flex-wrap items-center gap-1 mt-1">
-                                  {(ch.tagIds || ch.groupIds || []).map((gId) => {
-                                    const tName = tags.find(g => g.id === gId)?.name;
-                                    if (!tName) return null;
-                                    return (
-                                      <span key={gId} className="text-[9px] font-bold bg-blue-50 text-blue-700 px-1.5 py-0.2 rounded border border-blue-100/60 leading-tight">
-                                        {tName}
+                                <div className="min-w-0 flex-1">
+                                  <p className="text-xs font-bold text-slate-800 flex items-center gap-1.5 truncate">
+                                    <span className={ch.disabled ? "text-slate-500 line-through decoration-slate-300" : ""}>{ch.name}</span>
+                                    {ch.disabled && (
+                                      <span className="text-[9px] font-bold bg-amber-100 text-amber-800 border border-amber-300 px-1.5 py-0.2 rounded flex items-center gap-0.5 shrink-0" title="该频道已停播（不再参与对外导出，仅留存记录）">
+                                        <PowerOff className="w-2.5 h-2.5 text-amber-700" /> 已停播
                                       </span>
-                                    );
-                                  })}
-                                  {(!ch.tagIds || ch.tagIds.length === 0) && (!ch.groupIds || ch.groupIds.length === 0) && (
-                                    <span className="text-[9px] font-medium text-slate-400 bg-slate-50 px-1 rounded">未分类</span>
+                                    )}
+                                  </p>
+                                  {(ch.description || ch.province || ch.city || ch.frequency) && (
+                                    <p className="text-[10px] text-slate-500 font-normal truncate mt-0.5">
+                                      {[ch.frequency, ch.province, ch.city].filter(Boolean).join(" · ")}
+                                      {ch.description && (ch.frequency || ch.province || ch.city ? " | " : "") + ch.description}
+                                    </p>
                                   )}
+                                  
+                                  {/* Wrapping Tag Pills on Channel Card */}
+                                  <div className="flex flex-wrap items-center gap-1 mt-1">
+                                    {(ch.tagIds || ch.groupIds || []).map((gId) => {
+                                      const tName = tags.find(g => g.id === gId)?.name;
+                                      if (!tName) return null;
+                                      return (
+                                        <span key={gId} className="text-[9px] font-bold bg-blue-50 text-blue-700 px-1.5 py-0.2 rounded border border-blue-100/60 leading-tight">
+                                          {tName}
+                                        </span>
+                                      );
+                                    })}
+                                    {(!ch.tagIds || ch.tagIds.length === 0) && (!ch.groupIds || ch.groupIds.length === 0) && (
+                                      <span className="text-[9px] font-medium text-slate-400 bg-slate-50 px-1 rounded">未分类</span>
+                                    )}
+                                  </div>
+
+                                  <p className="text-[10px] text-slate-400 mt-1 truncate">
+                                    EPG ID: <span className="font-mono text-[9px] text-slate-500 font-bold bg-slate-100 px-1 py-0.5 rounded">{ch.epgId}</span>
+                                  </p>
                                 </div>
+                              </div>
+                              
+                              <div className="flex items-center gap-2 flex-shrink-0 ml-2">
+                                {/* Count pill badge */}
+                                <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${ch.disabled ? "bg-amber-100/70 text-amber-800" : "bg-slate-100 text-slate-600"}`}>
+                                  {activeCount} / {ch.sources.length} <span className="hidden sm:inline">条有效</span>
+                                </span>
 
-                                <p className="text-[10px] text-slate-400 mt-1 truncate">
-                                  EPG ID: <span className="font-mono text-[9px] text-slate-500 font-bold bg-slate-100 px-1 py-0.5 rounded">{ch.epgId}</span>
-                                </p>
+                                {/* Small Quick Action Panel */}
+                                <div className="flex gap-1">
+                                  <button 
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      handleToggleChannelDisabled(ch);
+                                    }}
+                                    className={`p-1 rounded transition cursor-pointer ${
+                                      ch.disabled 
+                                        ? "text-amber-600 hover:bg-amber-100" 
+                                        : "text-slate-400 hover:bg-slate-100 hover:text-slate-600"
+                                    }`}
+                                    title={ch.disabled ? "当前为「已停播」，点击恢复播送（恢复导出）" : "当前为「正常播送」，点击标记为已停播（不再导出，仅留存记录）"}
+                                  >
+                                    {ch.disabled ? <PowerOff className="w-3.5 h-3.5" /> : <Power className="w-3.5 h-3.5" />}
+                                  </button>
+                                  <button 
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      openChannelEdit(ch);
+                                    }}
+                                    className="p-1 hover:bg-slate-100 text-slate-500 hover:text-slate-800 rounded transition cursor-pointer"
+                                    title="编辑频道"
+                                  >
+                                    <Edit2 className="w-3.5 h-3.5" />
+                                  </button>
+                                  <button 
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      handleDeleteChannel(ch.id);
+                                    }}
+                                    className="p-1 hover:bg-slate-100 text-red-500 hover:text-red-700 rounded transition cursor-pointer"
+                                    title="删除频道"
+                                  >
+                                    <Trash2 className="w-3.5 h-3.5" />
+                                  </button>
+                                </div>
                               </div>
                             </div>
-                            
-                            <div className="flex items-center gap-2 flex-shrink-0 ml-2">
-                              {/* Count pill badge */}
-                              <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${ch.disabled ? "bg-amber-100/70 text-amber-800" : "bg-slate-100 text-slate-600"}`}>
-                                {activeCount} / {ch.sources.length} <span className="hidden sm:inline">条有效</span>
-                              </span>
-
-                              {/* Small Quick Action Panel */}
-                              <div className="flex gap-1">
-                                <button 
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    handleToggleChannelDisabled(ch);
-                                  }}
-                                  className={`p-1 rounded transition cursor-pointer ${
-                                    ch.disabled 
-                                      ? "text-amber-600 hover:bg-amber-100" 
-                                      : "text-slate-400 hover:bg-slate-100 hover:text-slate-600"
-                                  }`}
-                                  title={ch.disabled ? "当前为「已停播」，点击恢复播送（恢复导出）" : "当前为「正常播送」，点击标记为已停播（不再导出，仅留存记录）"}
-                                >
-                                  {ch.disabled ? <PowerOff className="w-3.5 h-3.5" /> : <Power className="w-3.5 h-3.5" />}
-                                </button>
-                                <button 
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    openChannelEdit(ch);
-                                  }}
-                                  className="p-1 hover:bg-slate-100 text-slate-500 hover:text-slate-800 rounded transition cursor-pointer"
-                                  title="编辑频道"
-                                >
-                                  <Edit2 className="w-3.5 h-3.5" />
-                                </button>
-                                <button 
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    handleDeleteChannel(ch.id);
-                                  }}
-                                  className="p-1 hover:bg-slate-100 text-red-500 hover:text-red-700 rounded transition cursor-pointer"
-                                  title="删除频道"
-                                >
-                                  <Trash2 className="w-3.5 h-3.5" />
-                                </button>
-                              </div>
-                            </div>
-                          </div>
-                        );
-                      })
-                    )}
-                    {filteredChannels.length > slicedChannels.length && (
-                      <div className="p-4 text-center bg-slate-50/50 border-t border-slate-100">
-                        <button
-                          onClick={() => setChannelPage(prev => prev + 1)}
-                          className="text-[11px] font-black text-blue-600 hover:text-blue-700 bg-blue-50/80 hover:bg-blue-100 px-4 py-2 rounded-xl transition cursor-pointer"
-                        >
-                          显示更多频道 (已显示 {slicedChannels.length} / 共 {filteredChannels.length} 条)
-                        </button>
+                          );
+                        })}
                       </div>
                     )}
                   </div>

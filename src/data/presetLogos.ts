@@ -1402,7 +1402,7 @@ export function normalizeStationName(name: string): string {
     .replace(/(?:高清|超清|标清|hd|4k|8k|fhd|uhd)/gi, "")
     .replace(/(?:人民)?广播(?:电台)?/g, "")
     .replace(/(?:频道|卫星频道|电视|卫视)/g, "卫视")
-    .replace(/[\s\-_()（）\[\]【】·.·+＋]+/g, "")
+    .replace(/[\s\-_()（）\[\]【】·.·+＋,，;；:：]+/g, "")
     .trim();
 }
 
@@ -1410,7 +1410,7 @@ export function normalizeStationName(name: string): string {
 export function searchPresetLogos(query: string, options?: { category?: string; limit?: number }): PresetLogoItem[] {
   if (!query || typeof query !== "string") return [];
   const limit = options?.limit || 24;
-  const rawClean = query.trim().toLowerCase();
+  const rawClean = query.trim().replace(/^[,\s，;；:：]+|[,\s，;；:：]+$/g, "").toLowerCase();
   const normQuery = normalizeStationName(query);
 
   const scored: Array<{ item: PresetLogoItem; score: number }> = [];

@@ -372,14 +372,25 @@ function stripBitrateAndResolution(name: string): string {
   // Remove empty brackets or parentheses remaining from substitutions
   clean = clean.replace(/(?:\s+|-|_)*[\[()\]]/g, "");
 
+  // Strip leading and trailing commas (half & full width), semicolons, colons, spaces
+  clean = clean.replace(/^[,\s，;；:：]+|[,\s，;；:：]+$/g, "");
+
+  return clean.trim();
+}
+
+// Clean channel name by stripping bitrate/resolution and removing leading/trailing punctuation
+function cleanChannelName(name: string): string {
+  if (!name) return "";
+  let clean = stripBitrateAndResolution(name);
+  clean = clean.replace(/^[,\s，;；:：]+|[,\s，;；:：]+$/g, "");
   return clean.trim();
 }
 
 // Normalize channel names by making them lower-case and stripping all spaces/whitespace to support smart matching (e.g., "cctv-1 综合" matches "cctv-1综合")
 function normalizeChannelName(name: string): string {
   if (!name) return "";
-  const stripped = stripBitrateAndResolution(name);
-  let clean = stripped.toLowerCase().replace(/\s+/g, "");
+  const stripped = cleanChannelName(name);
+  let clean = stripped.toLowerCase().replace(/[\s,，;；:：]+/g, "");
   
   // Custom smart matching for CCTV channels (e.g., CCTV-1, CCTV1, CCTV1HD, CCTV-1综合, CCTV-1 综合HD, cctv 1, CCTV 5+)
   // We match cctv followed by optional separator and a digit, plus optional "+"
@@ -394,6 +405,50 @@ function normalizeChannelName(name: string): string {
   return clean
     .replace(/[-_.\s]+/g, "")
     .replace(/(hd|uhd|fhd|ud|4k|8k|高清|超清|标清|sdi|channel|tv)/g, "");
+}
+
+// Split category string into individual clean category names (e.g. "双语台、音乐台" -> ["双语台", "音乐台"])
+function parseCategoryNames(categoryInput: string | string[]): string[] {
+  if (!categoryInput) return [];
+  const rawList = Array.isArray(categoryInput) ? categoryInput : [categoryInput];
+  const results: string[] = [];
+
+  for (const item of rawList) {
+    if (!item || typeof item !== "string") continue;
+    // Split by delimiters: 顿号 、, half-width , full-width ，, semicolon ; ；, slash / \, pipe |, plus +, and whitespace
+    const parts = item
+      .split(/[,;，；、/|\\+&\s]+/)
+      .map((s) => s.trim().replace(/^[,\s，;；:：、]+|[,\s，;；:：、]+$/g, ""))
+      .filter(Boolean);
+    results.push(...parts);
+  }
+
+  return Array.from(new Set(results));
+}
+
+// Find or create tag entities for category names, returning resolved tag IDs
+function resolveCategoryTagIds(categoryInput: string | string[]): string[] {
+  const catNames = parseCategoryNames(categoryInput);
+  if (catNames.length === 0) return [];
+
+  const tagIds: string[] = [];
+  for (const catName of catNames) {
+    let existingGroup = tags.find((g) => g.name.toLowerCase() === catName.toLowerCase());
+    if (!existingGroup) {
+      existingGroup = {
+        id: "g_" + Math.random().toString(36).substring(2, 10),
+        name: catName,
+      };
+      tags.push(existingGroup);
+      try {
+        db.prepare("INSERT OR IGNORE INTO tags (id, name, type) VALUES (?, ?, ?)").run(existingGroup.id, existingGroup.name, "category");
+      } catch (e) {}
+    }
+    if (!tagIds.includes(existingGroup.id)) {
+      tagIds.push(existingGroup.id);
+    }
+  }
+  return tagIds;
 }
 
 // Generate default epgId from channel name. CCTV5 and CCTV5+ are distinguished by keeping '+'. If processed epgId is empty, fallback to channel name.
@@ -523,13 +578,13 @@ const DEFAULT_SYNC_CONFIGS: SyncConfig[] = [
   },
   {
     id: "sc-yuechan",
-    name: "YueChan 央广与省市精选电台 (GitHub)",
-    url: "https://raw.githubusercontent.com/YueChan/Live/main/Radio.m3u",
+    name: "YueChan 央视与地方精选频道 (GitHub)",
+    url: "https://raw.githubusercontent.com/YueChan/Live/main/IPTV.m3u",
     type: "m3u",
     autoSync: true,
     syncInterval: 12,
     status: "never",
-    description: "精选中国之声、经济之声、音乐之声及各省核心电台高可用线路",
+    description: "精选央视频道、省市卫视及核心地方频道高可用线路",
     category: "央广 / 核心频道",
   },
   {
@@ -659,6 +714,23 @@ function loadData() {
         category: sc.category || undefined,
       }));
 
+      // Auto-update obsolete YueChan URL in DB if present
+      for (const sc of syncConfigs) {
+        if (sc.url && sc.url.includes("YueChan/Live/main/Radio.m3u")) {
+          sc.url = "https://raw.githubusercontent.com/YueChan/Live/main/IPTV.m3u";
+          sc.name = "YueChan 央视与地方精选频道 (GitHub)";
+          sc.description = "精选央视频道、省市卫视及核心地方频道高可用线路";
+          sc.consecutiveFailures = 0;
+          try {
+            db.prepare("UPDATE sync_configs SET url = ?, name = ?, description = ?, consecutiveFailures = 0 WHERE id = ?")
+              .run(sc.url, sc.name, sc.description, sc.id);
+            console.log(`[DB Auto-Repair] Updated obsolete YueChan sync URL to ${sc.url}`);
+          } catch (e: any) {
+            console.error("[DB Auto-Repair Error] Failed to update YueChan URL:", e.message || e);
+          }
+        }
+      }
+
       const loadedEpgSources = db.prepare("SELECT * FROM epg_sources").all();
       epgSources = loadedEpgSources.map((es: any) => ({
         id: es.id,
@@ -721,6 +793,86 @@ function loadData() {
           sources: sourceMap.get(ch.id) || []
         };
       });
+
+      // Auto-sanitize trailing commas and extra punctuation from channel names & alias arrays
+      let cleanedCount = 0;
+      const sanitizeChannelStmt = db.prepare("UPDATE channels SET name = ?, alias = ? WHERE id = ?");
+
+      channels.forEach((ch) => {
+        let modified = false;
+        const cleanedName = cleanChannelName(ch.name);
+        if (cleanedName && cleanedName !== ch.name) {
+          ch.name = cleanedName;
+          modified = true;
+        }
+
+        let cleanedAliases: string[] = [];
+        if (Array.isArray(ch.alias)) {
+          cleanedAliases = Array.from(new Set(
+            ch.alias.map((a: string) => cleanChannelName(a)).filter(Boolean)
+          ));
+          if (JSON.stringify(cleanedAliases) !== JSON.stringify(ch.alias)) {
+            ch.alias = cleanedAliases;
+            modified = true;
+          }
+        } else if (typeof ch.alias === "string") {
+          cleanedAliases = [cleanChannelName(ch.alias)].filter(Boolean);
+          ch.alias = cleanedAliases;
+          modified = true;
+        }
+
+        if (modified) {
+          cleanedCount++;
+          try {
+            sanitizeChannelStmt.run(ch.name, JSON.stringify(ch.alias), ch.id);
+          } catch (e: any) {
+            console.error(`[Sanitize Error] Failed to update channel ${ch.id}:`, e.message || e);
+          }
+        }
+      });
+
+      if (cleanedCount > 0) {
+        console.log(`[Data Sanitize] Cleaned trailing commas/punctuation from ${cleanedCount} channel records.`);
+      }
+
+      // Auto-repair composite tags (e.g. "双语台、音乐台" -> "双语台" and "音乐台")
+      const compositeTags = tags.filter((t) => /[,;，；、/|\\+&\s]/.test(t.name));
+      if (compositeTags.length > 0) {
+        console.log(`[Data Sanitize] Found ${compositeTags.length} composite tags to split.`);
+        const deleteTagStmt = db.prepare("DELETE FROM tags WHERE id = ?");
+        const updateChannelTagsStmt = db.prepare("UPDATE channels SET tagIds = ? WHERE id = ?");
+
+        compositeTags.forEach((compTag) => {
+          const targetTagIds = resolveCategoryTagIds(compTag.name);
+
+          channels.forEach((ch) => {
+            const currentTagIds = ch.tagIds || ch.groupIds || [];
+            if (currentTagIds.includes(compTag.id)) {
+              const updatedTagIds = Array.from(new Set([
+                ...currentTagIds.filter((id: string) => id !== compTag.id),
+                ...targetTagIds,
+              ]));
+              ch.tagIds = updatedTagIds;
+              ch.groupIds = updatedTagIds;
+
+              try {
+                updateChannelTagsStmt.run(JSON.stringify(updatedTagIds), ch.id);
+              } catch (e: any) {
+                console.error(`[Sanitize Error] Failed to update channel ${ch.id} tags:`, e.message || e);
+              }
+            }
+          });
+
+          tags = tags.filter((t) => t.id !== compTag.id);
+          try {
+            deleteTagStmt.run(compTag.id);
+          } catch (e: any) {
+            console.error(`[Sanitize Error] Failed to delete composite tag ${compTag.id}:`, e.message || e);
+          }
+        });
+
+        saveData();
+      }
     }
 
     // Auto seed default EPG / configs if SQLite was completely empty
@@ -767,36 +919,33 @@ function loadData() {
       updated = true;
     }
 
-    // Ensure all channels have groupIds array and map old category
+    // Ensure all channels have groupIds array and map category safely without composite tags
     channels.forEach((c: any) => {
       if (!c.groupIds) {
         c.tagIds = [];
+        c.groupIds = [];
         updated = true;
       }
       if (c.category) {
-        let matchingGroup = tags.find((g) => g.name === c.category);
-        if (!matchingGroup) {
-          matchingGroup = {
-            id: "g_" + Math.random().toString(36).substring(2, 10),
-            name: c.category,
-          };
-          tags.push(matchingGroup);
-          updated = true;
-        }
-        if (!c.tagIds.includes(matchingGroup.id)) {
-          c.tagIds.push(matchingGroup.id);
-          updated = true;
+        const catTagIds = resolveCategoryTagIds(c.category);
+        for (const tid of catTagIds) {
+          if (!c.tagIds.includes(tid)) {
+            c.tagIds.push(tid);
+            if (!c.groupIds.includes(tid)) c.groupIds.push(tid);
+            updated = true;
+          }
         }
       }
       // Guarantee at least one group membership
-      if (c.tagIds.length === 0) {
+      if (!c.tagIds || c.tagIds.length === 0) {
         let otherTag = tags.find((g) => g.id === "g_other" || g.name === "其它" || g.name === "其它频道");
         if (!otherTag) {
           otherTag = { id: "g_other", name: "其它" };
           tags.push(otherTag);
           updated = true;
         }
-        c.tagIds.push(otherTag.id);
+        c.tagIds = [otherTag.id];
+        c.groupIds = [otherTag.id];
         updated = true;
       }
     });
@@ -837,6 +986,31 @@ function loadData() {
           updated = true;
         }
       }
+    }
+
+    // Auto-repair & purge composite tags (e.g. "双语台、音乐台" -> "双语台" and "音乐台")
+    const compositeTags = tags.filter((t) => /[,;，；、/|\\+&\s]/.test(t.name));
+    if (compositeTags.length > 0) {
+      console.log(`[Data Sanitize] Found ${compositeTags.length} composite tags to split and replace.`);
+      compositeTags.forEach((compTag) => {
+        const targetTagIds = resolveCategoryTagIds(compTag.name);
+
+        channels.forEach((ch) => {
+          const currentTagIds = ch.tagIds || ch.groupIds || [];
+          if (currentTagIds.includes(compTag.id)) {
+            const updatedTagIds = Array.from(new Set([
+              ...currentTagIds.filter((id: string) => id !== compTag.id),
+              ...targetTagIds,
+            ]));
+            ch.tagIds = updatedTagIds;
+            ch.groupIds = updatedTagIds;
+            updated = true;
+          }
+        });
+
+        tags = tags.filter((t) => t.id !== compTag.id);
+        updated = true;
+      });
     }
 
     if (updated) {
@@ -1466,6 +1640,10 @@ async function fetchBufferWithFallback(urlStr: string, userAgent: string): Promi
       }
     });
   };
+
+  if (urlStr.includes("YueChan/Live/main/Radio.m3u")) {
+    urlStr = urlStr.replace("YueChan/Live/main/Radio.m3u", "YueChan/Live/main/IPTV.m3u");
+  }
 
   try {
     const res = await fetch(urlStr, {
@@ -3296,7 +3474,8 @@ ${qtfmMatch ? `本地电台库先验参考信息:\n${JSON.stringify({ name: qtfm
 
   app.post("/api/channels", (req, res) => {
     const { name, groupIds, category, logo, alias, epgId, description, province, city, frequency, gain, disabled } = req.body;
-    if (!name) {
+    const cleanName = cleanChannelName(name);
+    if (!cleanName) {
       return res.status(400).json({ error: "频道名称为必填项" });
     }
 
@@ -3321,14 +3500,21 @@ ${qtfmMatch ? `本地电台库先验参考信息:\n${JSON.stringify({ name: qtfm
       resolvedGroupIds = [otherTag.id];
     }
 
+    const rawAliases = alias 
+      ? (Array.isArray(alias) ? alias : String(alias).split(/[,;，；]/)) 
+      : [cleanName];
+    const cleanedAliases = Array.from(new Set(
+      rawAliases.map((s: string) => cleanChannelName(s)).filter(Boolean)
+    ));
+
     const newChannel: Channel = {
       id: "ch_" + Math.random().toString(36).substring(2, 10),
-      name,
+      name: cleanName,
       tagIds: resolvedGroupIds,
       groupIds: resolvedGroupIds,
       logo: logo || "https://images.unsplash.com/photo-1598257006458-087169a1f08d?auto=format&fit=crop&w=48&h=48&q=80",
-      alias: alias ? (Array.isArray(alias) ? alias : alias.split(",").map((s: string) => s.trim())) : [name],
-      epgId: epgId || generateDefaultEpgId(name),
+      alias: cleanedAliases.length > 0 ? cleanedAliases : [cleanName],
+      epgId: epgId || generateDefaultEpgId(cleanName),
       description: description || "",
       province: province || "",
       city: city || "",
@@ -3353,7 +3539,18 @@ ${qtfmMatch ? `本地电台库先验参考信息:\n${JSON.stringify({ name: qtfm
       return res.status(404).json({ error: "未找到该频道" });
     }
 
-    if (name) channel.name = name;
+    if (name) {
+      const cn = cleanChannelName(name);
+      if (cn) channel.name = cn;
+    }
+    
+    if (alias !== undefined) {
+      const rawAliases = Array.isArray(alias) ? alias : String(alias).split(/[,;，；]/);
+      const cleaned = Array.from(new Set(
+        rawAliases.map((s: string) => cleanChannelName(s)).filter(Boolean)
+      ));
+      channel.alias = cleaned.length > 0 ? cleaned : [channel.name];
+    }
     
     if (groupIds && Array.isArray(groupIds)) {
       channel.tagIds = groupIds;
