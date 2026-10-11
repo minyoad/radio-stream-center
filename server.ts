@@ -568,7 +568,7 @@ function parseCategoryNames(categoryInput: string | string[]): string[] {
 }
 
 // Find or create tag entities for category names, returning resolved tag IDs
-function resolveCategoryTagIds(categoryInput: string | string[]): string[] {
+function resolveCategoryTagIds(categoryInput: string | string[], allowCreate: boolean = autoCreateChannel): string[] {
   const catNames = parseCategoryNames(categoryInput);
   if (catNames.length === 0) return [];
 
@@ -576,6 +576,7 @@ function resolveCategoryTagIds(categoryInput: string | string[]): string[] {
   for (const catName of catNames) {
     let existingGroup = tags.find((g) => g.name.toLowerCase() === catName.toLowerCase());
     if (!existingGroup) {
+      if (!allowCreate) continue;
       existingGroup = {
         id: "g_" + Math.random().toString(36).substring(2, 10),
         name: catName,
@@ -585,7 +586,7 @@ function resolveCategoryTagIds(categoryInput: string | string[]): string[] {
         db.prepare("INSERT OR IGNORE INTO tags (id, name, type) VALUES (?, ?, ?)").run(existingGroup.id, existingGroup.name, "category");
       } catch (e) {}
     }
-    if (!tagIds.includes(existingGroup.id)) {
+    if (existingGroup && !tagIds.includes(existingGroup.id)) {
       tagIds.push(existingGroup.id);
     }
   }
@@ -2012,13 +2013,17 @@ async function performSync(config: SyncConfig, force = false) {
           for (const catName of catNames) {
             let existingGroup = tags.find(g => g.name.toLowerCase() === catName.toLowerCase());
             if (!existingGroup) {
+              if (!autoCreateChannel) continue;
               existingGroup = {
                 id: "g_" + Math.random().toString(36).substring(2, 10),
                 name: catName,
               };
               tags.push(existingGroup);
+              try {
+                db.prepare("INSERT OR IGNORE INTO tags (id, name, type) VALUES (?, ?, ?)").run(existingGroup.id, existingGroup.name, "category");
+              } catch (e) {}
             }
-            matchedGroupIds.push(existingGroup.id);
+            if (existingGroup) matchedGroupIds.push(existingGroup.id);
           }
 
           // Find standard template/alias group from default aliases
@@ -2066,7 +2071,7 @@ async function performSync(config: SyncConfig, force = false) {
                 }
               });
             }
-            if (currentInfo?.logo && !isInvalidLogo(currentInfo.logo)) {
+            if ((!channel.logo || isInvalidLogo(channel.logo)) && currentInfo?.logo && !isInvalidLogo(currentInfo.logo)) {
               channel.logo = currentInfo.logo;
             }
 
@@ -2119,13 +2124,17 @@ async function performSync(config: SyncConfig, force = false) {
           for (const catName of catNames) {
             let existingGroup = tags.find(g => g.name.toLowerCase() === catName.toLowerCase());
             if (!existingGroup) {
+              if (!autoCreateChannel) continue;
               existingGroup = {
                 id: "g_" + Math.random().toString(36).substring(2, 10),
                 name: catName,
               };
               tags.push(existingGroup);
+              try {
+                db.prepare("INSERT OR IGNORE INTO tags (id, name, type) VALUES (?, ?, ?)").run(existingGroup.id, existingGroup.name, "category");
+              } catch (e) {}
             }
-            matchedGroupIds.push(existingGroup.id);
+            if (existingGroup) matchedGroupIds.push(existingGroup.id);
           }
 
           const stdInfo = findAliasTemplate(name);
@@ -4254,11 +4263,12 @@ ${qtfmMatch ? `本地电台库先验参考信息:\n${JSON.stringify({ name: qtfm
           for (const catName of catNames) {
             let existingGroup = tags.find((g) => g.name.toLowerCase() === catName.toLowerCase());
             if (!existingGroup) {
+              if (!autoCreateChannel) continue;
               existingGroup = { id: "g_" + Math.random().toString(36).substring(2, 10), name: catName };
               tags.push(existingGroup);
               db.prepare("INSERT OR IGNORE INTO tags (id, name, type) VALUES (?, ?, ?)").run(existingGroup.id, existingGroup.name, "category");
             }
-            matchedGroupIds.push(existingGroup.id);
+            if (existingGroup) matchedGroupIds.push(existingGroup.id);
           }
 
           const stdInfo = findAliasTemplate(name);
@@ -4273,6 +4283,7 @@ ${qtfmMatch ? `本地电台库先验参考信息:\n${JSON.stringify({ name: qtfm
           const qingtingIdVal = (isQingtingFile || qtfmIdFromItem) ? String(qtfmIdFromItem || "").trim() : "";
 
           if (!channel) {
+            if (!autoCreateChannel) continue;
             const cleanName = stdInfo ? stdInfo.templateName : name;
             const cleanAliases = stdInfo ? Array.from(new Set([cleanName, name, ...stdInfo.aliases])) : [name];
             channel = {
@@ -4293,7 +4304,7 @@ ${qtfmMatch ? `本地电台库先验参考信息:\n${JSON.stringify({ name: qtfm
             
             importedChannelsCount++;
           } else {
-            if (qingtingIdVal) {
+            if (!channel.qingtingId && qingtingIdVal) {
               channel.qingtingId = qingtingIdVal;
               db.prepare("UPDATE channels SET qingtingId = ? WHERE id = ?").run(qingtingIdVal, channel.id);
             }
@@ -4506,7 +4517,7 @@ ${qtfmMatch ? `本地电台库先验参考信息:\n${JSON.stringify({ name: qtfm
                 if (!ch.description && row['电台描述']) ch.description = row['电台描述'];
                 if (!ch.province && row['所属省份']) ch.province = row['所属省份'];
                 if (!ch.city && row['所属城市']) ch.city = row['所属城市'];
-                if ((isQingtingFile || !ch.qingtingId) && qtfmIdFromRow) {
+                if (!ch.qingtingId && qtfmIdFromRow) {
                    ch.qingtingId = String(qtfmIdFromRow).trim();
                 }
              }
@@ -4595,13 +4606,17 @@ ${qtfmMatch ? `本地电台库先验参考信息:\n${JSON.stringify({ name: qtfm
             for (const catName of catNames) {
               let existingGroup = tags.find((g) => g.name.toLowerCase() === catName.toLowerCase());
               if (!existingGroup) {
+                if (!autoCreateChannel) continue;
                 existingGroup = {
                   id: "g_" + Math.random().toString(36).substring(2, 10),
                   name: catName,
                 };
                 tags.push(existingGroup);
+                try {
+                  db.prepare("INSERT OR IGNORE INTO tags (id, name, type) VALUES (?, ?, ?)").run(existingGroup.id, existingGroup.name, "category");
+                } catch (e) {}
               }
-              matchedGroupIds.push(existingGroup.id);
+              if (existingGroup) matchedGroupIds.push(existingGroup.id);
             }
 
             const stdInfo = findAliasTemplate(currentInfo.name);
@@ -4615,6 +4630,10 @@ ${qtfmMatch ? `本地电台库先验参考信息:\n${JSON.stringify({ name: qtfm
             );
 
             if (!channel) {
+              if (!autoCreateChannel) {
+                currentInfo = null;
+                continue;
+              }
               const cleanName = stdInfo ? stdInfo.templateName : currentInfo.name;
               const cleanAliases = stdInfo
                 ? Array.from(new Set([cleanName, currentInfo.name, ...stdInfo.aliases]))
@@ -4689,13 +4708,17 @@ ${qtfmMatch ? `本地电台库先验参考信息:\n${JSON.stringify({ name: qtfm
             for (const catName of catNames) {
               let existingGroup = tags.find((g) => g.name.toLowerCase() === catName.toLowerCase());
               if (!existingGroup) {
+                if (!autoCreateChannel) continue;
                 existingGroup = {
                   id: "g_" + Math.random().toString(36).substring(2, 10),
                   name: catName,
                 };
                 tags.push(existingGroup);
+                try {
+                  db.prepare("INSERT OR IGNORE INTO tags (id, name, type) VALUES (?, ?, ?)").run(existingGroup.id, existingGroup.name, "category");
+                } catch (e) {}
               }
-              matchedGroupIds.push(existingGroup.id);
+              if (existingGroup) matchedGroupIds.push(existingGroup.id);
             }
 
             const stdInfo = findAliasTemplate(name);
@@ -4709,6 +4732,7 @@ ${qtfmMatch ? `本地电台库先验参考信息:\n${JSON.stringify({ name: qtfm
             );
 
             if (!channel) {
+              if (!autoCreateChannel) continue;
               const cleanName = stdInfo ? stdInfo.templateName : name;
               const cleanAliases = stdInfo
                 ? Array.from(new Set([cleanName, name, ...stdInfo.aliases]))
