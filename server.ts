@@ -25,7 +25,8 @@ interface LiveSource {
   status: "active" | "inactive" | "unknown" | "checking";
   latency?: number;
   lastChecked?: string;
-    }
+  channelId?: string;
+}
 
 interface Tag {
   id: string;
@@ -3766,7 +3767,7 @@ ${qtfmMatch ? `本地电台库先验参考信息:\n${JSON.stringify({ name: qtfm
 
   // Merge multiple channels
   app.post("/api/channels/merge", (req, res) => {
-    const { channelIds } = req.body;
+    const { channelIds, baseChannelId } = req.body;
     if (!Array.isArray(channelIds) || channelIds.length < 2) {
       return res.status(400).json({ error: "请提供至少两个要合并的频道 ID" });
     }
@@ -3776,206 +3777,187 @@ ${qtfmMatch ? `本地电台库先验参考信息:\n${JSON.stringify({ name: qtfm
       return res.status(400).json({ error: "未找到足够的待合并频道项目" });
     }
 
-    // Score channels to pick the most complete/valid as primary
-    const getScore = (ch: typeof targetChannels[0]) => {
-      let score = 0;
-      if (ch.name && ch.name.trim().length > 0) score += 2;
-      if (ch.logo && (ch.logo.startsWith("http") || ch.logo.startsWith("/") || ch.logo.length > 5)) score += 5;
-      if (ch.epgId && ch.epgId.trim().length > 0 && !/^\d+$/.test(ch.epgId)) score += 3;
-      if (ch.groupIds && ch.tagIds.length > 0) score += ch.tagIds.length;
-      if (ch.sources && ch.sources.length > 0) score += ch.sources.length * 2;
-      if (ch.alias && ch.alias.length > 0) score += ch.alias.length;
-
-      // Heavy priority score boost for names that match the system's standard preset channel list (DEFAULT_CHANNELS and templates)
-      const hasPresetName = DEFAULT_CHANNELS.some(
-        dc => dc.name.trim().toLowerCase() === ch.name.trim().toLowerCase() || dc.id === ch.id
-      );
-      if (hasPresetName) {
-        score += 10000;
-      } else {
-        const isTemplateName = loadedDefaultAliases.some(
-          group => group.template.trim().toLowerCase() === ch.name.trim().toLowerCase()
-        );
-        if (isTemplateName) {
-          score += 5000;
-        } else {
-          const aliasTemplate = findAliasTemplate(ch.name);
-          if (aliasTemplate && aliasTemplate.templateName.trim().toLowerCase() === ch.name.trim().toLowerCase()) {
-            score += 1000;
-          }
-        }
-      }
-      return score;
-    };
-
-    const sortedByCompleteness = [...targetChannels].sort((a, b) => getScore(b) - getScore(a));
-    const primaryChannel = sortedByCompleteness[0];
-
-    // If one of the target channels being merged can be matched to a canonical channel list template name,
-    // we use that standard name as the main channel name
-    let resolvedStandardName = "";
-    for (const ch of targetChannels) {
-      const match = DEFAULT_CHANNELS.find(
-        dc => dc.name.trim().toLowerCase() === ch.name.trim().toLowerCase() || dc.id === ch.id
-      );
-      if (match) {
-        resolvedStandardName = match.name;
-        break;
-      }
+    // Determine base channel: if baseChannelId is provided and valid, use it; otherwise fallback to scoring
+    let baseChannel = baseChannelId ? targetChannels.find(c => c.id === baseChannelId) : null;
+    if (!baseChannel) {
+      const getScore = (ch: typeof targetChannels[0]) => {
+        let score = 0;
+        if (ch.name && ch.name.trim().length > 0) score += 2;
+        if (ch.logo && !isInvalidLogo(ch.logo)) score += 5;
+        if (ch.epgId && ch.epgId.trim().length > 0 && !/^\d+$/.test(ch.epgId)) score += 3;
+        if (ch.qingtingId && ch.qingtingId.trim().length > 0) score += 3;
+        if (ch.description && ch.description.trim().length > 0) score += 2;
+        if (ch.tagIds && ch.tagIds.length > 0) score += ch.tagIds.length;
+        if (ch.sources && ch.sources.length > 0) score += ch.sources.length * 2;
+        if (ch.alias && ch.alias.length > 0) score += ch.alias.length;
+        return score;
+      };
+      const sortedByCompleteness = [...targetChannels].sort((a, b) => getScore(b) - getScore(a));
+      baseChannel = sortedByCompleteness[0];
     }
 
-    if (!resolvedStandardName) {
-      for (const ch of targetChannels) {
-        const match = loadedDefaultAliases.find(
-          group => group.template.trim().toLowerCase() === ch.name.trim().toLowerCase()
-        );
-        if (match) {
-          resolvedStandardName = match.template;
-          break;
-        }
-      }
-    }
+    const otherChannels = targetChannels.filter(c => c.id !== baseChannel.id);
+    const baseName = baseChannel.name;
 
-    if (!resolvedStandardName) {
-      for (const ch of targetChannels) {
-        const match = findAliasTemplate(ch.name);
-        if (match) {
-          resolvedStandardName = match.templateName;
-          break;
-        }
-      }
-    }
-
-    if (resolvedStandardName) {
-      console.log(`[Channel Merge] Prioritized preset/standard channel list name: "${primaryChannel.name}" -> "${resolvedStandardName}"`);
-      primaryChannel.name = resolvedStandardName;
-    }
-
-    const allNames = new Set<string>();
-    const allAliases = new Set<string>();
-    const allGroupIds = new Set<string>();
-    const logoCandidates: string[] = [];
-    const epgIdCandidates: string[] = [];
-    
-    // String candidates for additional fields
-    const descriptionCandidates: string[] = [];
-    const provinceCandidates: string[] = [];
-    const cityCandidates: string[] = [];
-    const categoryCandidates: string[] = [];
-    const frequencyCandidates: string[] = [];
-    let bestGain = primaryChannel.gain;
-
-    targetChannels.forEach(c => {
-      if (c.name) allNames.add(c.name.trim());
-      if (c.alias && Array.isArray(c.alias)) {
-        c.alias.forEach(a => {
-          if (a) allAliases.add(a.trim());
-        });
-      }
-      if (c.tagIds && Array.isArray(c.tagIds)) {
-        c.tagIds.forEach(g => allGroupIds.add(g));
-      }
-      if (c.groupIds && Array.isArray(c.groupIds)) {
-        c.groupIds.forEach(g => allGroupIds.add(g));
-      }
-      if (c.logo && c.logo.trim()) {
-        logoCandidates.push(c.logo.trim());
-      }
-      if (c.epgId && c.epgId.trim()) {
-        epgIdCandidates.push(c.epgId.trim());
-      }
-      if (c.description && c.description.trim()) descriptionCandidates.push(c.description.trim());
-      if (c.province && c.province.trim()) provinceCandidates.push(c.province.trim());
-      if (c.city && c.city.trim()) cityCandidates.push(c.city.trim());
-      if (c.category && c.category.trim()) categoryCandidates.push(c.category.trim());
-      if (c.frequency && c.frequency.trim()) frequencyCandidates.push(c.frequency.trim());
-      
-      // Look for a non-default gain
-      if ((bestGain === undefined || bestGain === null || bestGain === 1) && 
-          c.gain !== undefined && c.gain !== null && c.gain !== 1) {
-        bestGain = c.gain;
-      }
-    });
-
-    let bestLogo = primaryChannel.logo || "";
-    const httpLogo = logoCandidates.find(l => l.startsWith("http://") || l.startsWith("https://"));
-    if (httpLogo) {
-      bestLogo = httpLogo;
-    } else if (logoCandidates.length > 0) {
-      bestLogo = logoCandidates[0];
-    }
-
-    let bestEpgId = primaryChannel.epgId || "";
-    const validEpgId = epgIdCandidates.find(e => e && !/^\d+$/.test(e) && e.toLowerCase() !== "null" && e.toLowerCase() !== "undefined");
-    if (validEpgId) {
-      bestEpgId = validEpgId;
-    } else if (epgIdCandidates.length > 0) {
-      bestEpgId = epgIdCandidates[0];
-    }
-
-    const mergedSources: typeof primaryChannel.sources = [];
+    // 1. 保留基础电台的有效数据；
+    // 2. 其他电台的直播源合入（按 URL 去重并保留优化性能指标）
+    const mergedSources: typeof baseChannel.sources = [];
     const addedUrls = new Set<string>();
 
-    const allSources = [
-      ...(primaryChannel.sources || []),
-      ...targetChannels.filter(c => c.id !== primaryChannel.id).flatMap(c => c.sources || [])
-    ];
-
-    allSources.forEach(s => {
-      if (!s || !s.url) return;
-      const cleanUrl = s.url.trim();
-      if (!addedUrls.has(cleanUrl)) {
-        addedUrls.add(cleanUrl);
-        mergedSources.push({
-          ...s,
-          url: cleanUrl
-        });
-      } else {
-        const existingIdx = mergedSources.findIndex(x => x.url === cleanUrl);
-        if (existingIdx !== -1) {
-          const existing = mergedSources[existingIdx];
-          if (existing.status !== "active" && s.status === "active") {
-            mergedSources[existingIdx] = s;
-          } else if (existing.status === s.status && s.latency && (!existing.latency || s.latency < existing.latency)) {
-            mergedSources[existingIdx] = s;
-          }
+    (baseChannel.sources || []).forEach(s => {
+      if (s && s.url && s.url.trim()) {
+        const cleanUrl = s.url.trim();
+        if (!addedUrls.has(cleanUrl)) {
+          addedUrls.add(cleanUrl);
+          mergedSources.push({
+            ...s,
+            channelId: baseChannel.id,
+            url: cleanUrl
+          });
         }
       }
     });
 
-    const primaryName = primaryChannel.name;
-    allNames.forEach(n => {
-      if (n !== primaryName) {
-        allAliases.add(n);
-      }
+    otherChannels.forEach(c => {
+      (c.sources || []).forEach(s => {
+        if (!s || !s.url || !s.url.trim()) return;
+        const cleanUrl = s.url.trim();
+        if (!addedUrls.has(cleanUrl)) {
+          addedUrls.add(cleanUrl);
+          mergedSources.push({
+            ...s,
+            id: s.id || ("src_" + Math.random().toString(36).substring(2, 10)),
+            channelId: baseChannel.id,
+            url: cleanUrl
+          });
+        } else {
+          // 若已有同 URL 直播源，如其他源更优（active 或更低延迟）则进行更新
+          const existingIdx = mergedSources.findIndex(x => x.url === cleanUrl);
+          if (existingIdx !== -1) {
+            const existing = mergedSources[existingIdx];
+            if (existing.status !== "active" && s.status === "active") {
+              mergedSources[existingIdx] = { ...s, channelId: baseChannel.id, url: cleanUrl };
+            } else if (existing.status === s.status && s.latency && (!existing.latency || s.latency < existing.latency)) {
+              mergedSources[existingIdx] = { ...s, channelId: baseChannel.id, url: cleanUrl };
+            }
+          }
+        }
+      });
     });
 
-    primaryChannel.logo = bestLogo;
-    primaryChannel.epgId = bestEpgId;
-    primaryChannel.groupIds = Array.from(allGroupIds);
-    primaryChannel.tagIds = Array.from(allGroupIds); // sync both just in case
-    primaryChannel.alias = Array.from(allAliases).filter(a => a !== primaryName);
-    primaryChannel.sources = mergedSources;
-    
-    // Fill in missing optional metadata fields
-    primaryChannel.description = primaryChannel.description || descriptionCandidates.find(x => x) || "";
-    primaryChannel.province = primaryChannel.province || provinceCandidates.find(x => x) || "";
-    primaryChannel.city = primaryChannel.city || cityCandidates.find(x => x) || "";
-    primaryChannel.category = primaryChannel.category || categoryCandidates.find(x => x) || "";
-    primaryChannel.frequency = primaryChannel.frequency || frequencyCandidates.find(x => x) || "";
-    if ((primaryChannel.gain === undefined || primaryChannel.gain === null || primaryChannel.gain === 1) && bestGain !== undefined) {
-      primaryChannel.gain = bestGain;
+    baseChannel.sources = mergedSources;
+
+    // 3. 其他电台只有在基础电台数据为空的情况下，才合入：
+    // Logo: 仅在基础电台无有效 Logo 时合入
+    if (isInvalidLogo(baseChannel.logo)) {
+      const validOtherLogo = otherChannels.find(c => !isInvalidLogo(c.logo));
+      if (validOtherLogo) {
+        baseChannel.logo = validOtherLogo.logo;
+      }
     }
 
-    const otherIdsToMerge = channelIds.filter(id => id !== primaryChannel.id);
+    // EPG ID: 仅在基础电台无有效 EPG 时合入
+    const isInvalidEpg = (e?: string) => !e || !e.trim() || /^\d+$/.test(e) || e.toLowerCase() === "null" || e.toLowerCase() === "undefined";
+    if (isInvalidEpg(baseChannel.epgId)) {
+      const validOtherEpg = otherChannels.find(c => !isInvalidEpg(c.epgId));
+      if (validOtherEpg) {
+        baseChannel.epgId = validOtherEpg.epgId;
+      }
+    }
+
+    // 蜻蜓FM ID: 仅在基础电台为空时合入
+    if (!baseChannel.qingtingId || !baseChannel.qingtingId.trim()) {
+      const validOtherQtfm = otherChannels.find(c => c.qingtingId && c.qingtingId.trim());
+      if (validOtherQtfm) {
+        baseChannel.qingtingId = validOtherQtfm.qingtingId.trim();
+      }
+    }
+
+    // 简介描述: 仅在基础电台为空时合入
+    if (!baseChannel.description || !baseChannel.description.trim()) {
+      const validOtherDesc = otherChannels.find(c => c.description && c.description.trim());
+      if (validOtherDesc) {
+        baseChannel.description = validOtherDesc.description.trim();
+      }
+    }
+
+    // 省份: 仅在基础电台为空时合入
+    if (!baseChannel.province || !baseChannel.province.trim()) {
+      const validOtherProv = otherChannels.find(c => c.province && c.province.trim());
+      if (validOtherProv) {
+        baseChannel.province = validOtherProv.province.trim();
+      }
+    }
+
+    // 城市: 仅在基础电台为空时合入
+    if (!baseChannel.city || !baseChannel.city.trim()) {
+      const validOtherCity = otherChannels.find(c => c.city && c.city.trim());
+      if (validOtherCity) {
+        baseChannel.city = validOtherCity.city.trim();
+      }
+    }
+
+    // 分类: 仅在基础电台为空时合入
+    if (!baseChannel.category || !baseChannel.category.trim()) {
+      const validOtherCat = otherChannels.find(c => c.category && c.category.trim());
+      if (validOtherCat) {
+        baseChannel.category = validOtherCat.category.trim();
+      }
+    }
+
+    // 频率: 仅在基础电台为空时合入
+    if (!baseChannel.frequency || !baseChannel.frequency.trim()) {
+      const validOtherFreq = otherChannels.find(c => c.frequency && c.frequency.trim());
+      if (validOtherFreq) {
+        baseChannel.frequency = validOtherFreq.frequency.trim();
+      }
+    }
+
+    // 增益: 仅在基础电台为默认 1 或未设置时合入其他电台的定制增益
+    if (baseChannel.gain === undefined || baseChannel.gain === null || baseChannel.gain === 1) {
+      const validOtherGain = otherChannels.find(c => c.gain !== undefined && c.gain !== null && c.gain !== 1);
+      if (validOtherGain) {
+        baseChannel.gain = validOtherGain.gain;
+      }
+    }
+
+    // 分组/标签: 仅在基础电台无分组时合入
+    if ((!baseChannel.tagIds || baseChannel.tagIds.length === 0) && (!baseChannel.groupIds || baseChannel.groupIds.length === 0)) {
+      const validOtherTags = otherChannels.find(c => (c.tagIds && c.tagIds.length > 0) || (c.groupIds && c.groupIds.length > 0));
+      if (validOtherTags) {
+        const mergedTagIds = validOtherTags.tagIds || validOtherTags.groupIds || [];
+        baseChannel.tagIds = [...mergedTagIds];
+        baseChannel.groupIds = [...mergedTagIds];
+      }
+    }
+
+    // 别名: 将被合并电台的名称和别名并入基础电台的别名列表中（排除基础电台名称自身）
+    const aliasSet = new Set<string>(baseChannel.alias || []);
+    otherChannels.forEach(c => {
+      if (c.name && c.name.trim() !== baseName) {
+        aliasSet.add(c.name.trim());
+      }
+      if (c.alias && Array.isArray(c.alias)) {
+        c.alias.forEach(a => {
+          if (a && a.trim() && a.trim() !== baseName) {
+            aliasSet.add(a.trim());
+          }
+        });
+      }
+    });
+    aliasSet.delete(baseName);
+    baseChannel.alias = Array.from(aliasSet);
+
+    // 从数据库和内存列表中移除其余电台
+    const otherIdsToMerge = otherChannels.map(c => c.id);
     channels = channels.filter(c => !otherIdsToMerge.includes(c.id));
 
     saveData();
 
     res.json({
       success: true,
-      message: `成功合并 ${targetChannels.length} 个频道。保留了最完备的主频道 [${primaryChannel.name}]，合并后包含别名: ${primaryChannel.alias.join(", ") || "无"}，已整合并去重 ${primaryChannel.sources.length} 条播放线路。`,
-      primaryChannel
+      message: `成功合并 ${targetChannels.length} 个电台。以 [${baseChannel.name}] 作为基础电台，保留其有效信息，并合入了全部直播源（当前共 ${baseChannel.sources.length} 条播放源），其他电台名称已作为别名合入。`,
+      primaryChannel: baseChannel
     });
   });
 

@@ -27,6 +27,7 @@ import {
   FileText,
   Database,
   Shield,
+  Info,
   Menu,
   X,
   Sliders,
@@ -378,7 +379,12 @@ export default function App() {
     type: "m3u" as "m3u" | "txt",
     autoSync: true,
     syncInterval: 12,
-      });
+  });
+
+  // States for Channel Merge with Base Channel Selection
+  const [isMergeModalOpen, setIsMergeModalOpen] = useState(false);
+  const [mergeBaseChannelId, setMergeBaseChannelId] = useState<string>("");
+  const [isMergingChannels, setIsMergingChannels] = useState(false);
 
   // States for subscription backups and import/export
   const [isImportSubscriptionsOpen, setIsImportSubscriptionsOpen] = useState(false);
@@ -1477,38 +1483,51 @@ export default function App() {
       showFeedback("info", "合并频道功能需要至少选择 2 个频道项目");
       return;
     }
-    const selectedNames = channels
-      .filter(ch => selectedChannelIds.includes(ch.id))
-      .map(ch => ch.name);
+    const selectedList = channels.filter(ch => selectedChannelIds.includes(ch.id));
+    if (selectedList.length < 2) {
+      showFeedback("info", "未找到足够的待合并频道项目");
+      return;
+    }
+    // 默认推选有效数据最完备的电台作为默认选中的基础电台
+    const sorted = [...selectedList].sort((a, b) => {
+      let scoreA = (a.sources?.length || 0) * 2 + (a.logo ? 5 : 0) + (a.epgId ? 3 : 0) + (a.qingtingId ? 3 : 0);
+      let scoreB = (b.sources?.length || 0) * 2 + (b.logo ? 5 : 0) + (b.epgId ? 3 : 0) + (b.qingtingId ? 3 : 0);
+      return scoreB - scoreA;
+    });
+    setMergeBaseChannelId(sorted[0]?.id || selectedChannelIds[0]);
+    setIsMergeModalOpen(true);
+  };
 
-    triggerConfirm(
-      "合并选中频道",
-      `确定要将选中的 ${selectedChannelIds.length} 个项目合并为一个频道吗？
-系统将智能化推荐/保留属性（Logo、EPG等）最完整的电台频道作为主电台频道，其它的频道名称将被设定为此主频道的关联“别名”，并且会自动合并、去重所有的直播播放线路。
-
-拟合并的频道: [ ${selectedNames.join(" | ")} ]`,
-      async () => {
-        try {
-          const res = await fetch("/api/channels/merge", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ channelIds: selectedChannelIds })
-          });
-          if (res.ok) {
-            const data = await res.json();
-            showFeedback("success", data.message || "频道的合并已成功完成！");
-            setSelectedChannelIds([]);
-            setSelectedChannel(null);
-            fetchData();
-          } else {
-            const err = await res.json();
-            showFeedback("error", err.error || "合并频道作业失败");
-          }
-        } catch (e) {
-          showFeedback("error", "网络连接超时，请稍后重试");
-        }
+  const executeChannelMerge = async () => {
+    if (!mergeBaseChannelId) {
+      showFeedback("error", "请选择一个基础电台");
+      return;
+    }
+    setIsMergingChannels(true);
+    try {
+      const res = await fetch("/api/channels/merge", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          channelIds: selectedChannelIds,
+          baseChannelId: mergeBaseChannelId
+        })
+      });
+      const data = await res.json();
+      if (res.ok) {
+        showFeedback("success", data.message || "电台合并已成功完成！");
+        setIsMergeModalOpen(false);
+        setSelectedChannelIds([]);
+        setSelectedChannel(null);
+        fetchData();
+      } else {
+        showFeedback("error", data.error || "合并电台操作失败");
       }
-    );
+    } catch (e) {
+      showFeedback("error", "网络连接超时，请稍后重试");
+    } finally {
+      setIsMergingChannels(false);
+    }
   };
 
   const openBatchGroupModal = () => {
@@ -7714,6 +7733,199 @@ export default function App() {
                 </button>
               </div>
             )}
+          </div>
+        </div>
+      )}
+
+      {/* Modal Dialog: Merge Channels (Select Base Channel) */}
+      {isMergeModalOpen && (
+        <div className="fixed inset-0 z-[95] bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 font-sans" id="merge_channels_modal">
+          <div className="bg-white rounded-2xl max-w-2xl w-full shadow-2xl border border-slate-150 flex flex-col animate-fade-in font-sans max-h-[90vh]">
+            <div className="flex justify-between items-center px-6 py-5 border-b border-slate-100 flex-shrink-0">
+              <div className="flex items-center gap-2.5">
+                <div className="w-8 h-8 rounded-xl bg-indigo-50 text-indigo-600 flex items-center justify-center font-bold">
+                  <GitMerge className="w-4 h-4" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-black text-slate-800">合并多个电台频道</h3>
+                  <p className="text-[11px] text-slate-500 font-medium">请选择一个电台作为【基础电台】</p>
+                </div>
+              </div>
+              <button 
+                type="button" 
+                className="text-slate-400 hover:text-slate-600 font-bold p-1 rounded-lg hover:bg-slate-50 transition cursor-pointer" 
+                onClick={() => setIsMergeModalOpen(false)}
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="p-6 overflow-y-auto space-y-4">
+              {/* Merge Rule Hint Banner */}
+              <div className="bg-indigo-50/80 border border-indigo-100 rounded-xl p-3.5 text-xs text-indigo-900 space-y-1.5 leading-relaxed">
+                <div className="font-bold flex items-center gap-1.5 text-indigo-950">
+                  <Info className="w-3.5 h-3.5 text-indigo-600 shrink-0" />
+                  合并规则说明：
+                </div>
+                <ul className="list-disc list-inside space-y-1 text-[11px] text-indigo-800 font-medium pl-1">
+                  <li><strong className="text-indigo-950 font-bold">基础电台有效数据保留</strong>：基础电台的名称、已有有效 Logo 图标、简介、EPG ID、蜻蜓FM ID、省市分类等属性完整保留，不会被覆盖。</li>
+                  <li><strong className="text-indigo-950 font-bold">全量合入直播源</strong>：其他电台的所有直播播放线路将全量合并并去重合入基础电台。</li>
+                  <li><strong className="text-indigo-950 font-bold">按需补全空缺属性</strong>：其他电台的属性只有在基础电台对应字段为空的情况下才会被合入填补。</li>
+                  <li><strong className="text-indigo-950 font-bold">保留别名索引</strong>：其他电台的名称将作为基础电台的搜索“别名”保留。</li>
+                </ul>
+              </div>
+
+              {/* Channel Candidates Selection List */}
+              <div className="space-y-2">
+                <label className="text-xs font-bold text-slate-700 block">
+                  待合并电台列表（点击选择作为基础电台，共 {selectedChannelIds.length} 个）：
+                </label>
+                <div className="space-y-2 max-h-[300px] overflow-y-auto pr-1">
+                  {channels
+                    .filter(ch => selectedChannelIds.includes(ch.id))
+                    .map(ch => {
+                      const isBase = mergeBaseChannelId === ch.id;
+                      const sourceCount = ch.sources ? ch.sources.length : 0;
+                      return (
+                        <div
+                          key={ch.id}
+                          onClick={() => setMergeBaseChannelId(ch.id)}
+                          className={`p-3.5 rounded-xl border transition-all cursor-pointer flex items-start gap-3.5 ${
+                            isBase
+                              ? "bg-indigo-50/60 border-indigo-500 ring-2 ring-indigo-500/20 shadow-xs"
+                              : "bg-white border-slate-200 hover:border-slate-300 hover:bg-slate-50/50"
+                          }`}
+                        >
+                          {/* Radio Checkbox */}
+                          <div className="pt-0.5 shrink-0">
+                            <div className={`w-4 h-4 rounded-full border flex items-center justify-center transition ${
+                              isBase ? "border-indigo-600 bg-indigo-600 text-white" : "border-slate-300 bg-white"
+                            }`}>
+                              {isBase && <div className="w-1.5 h-1.5 bg-white rounded-full" />}
+                            </div>
+                          </div>
+
+                          {/* Channel Logo */}
+                          <div className="w-10 h-10 rounded-lg overflow-hidden bg-slate-100 border border-slate-200 shrink-0 flex items-center justify-center">
+                            {ch.logo ? (
+                              <img src={ch.logo} alt={ch.name} className="w-full h-full object-cover" onError={(e) => { (e.target as HTMLElement).style.display = 'none'; }} />
+                            ) : (
+                              <Radio className="w-5 h-5 text-slate-400" />
+                            )}
+                          </div>
+
+                          {/* Channel Details */}
+                          <div className="flex-1 min-w-0 space-y-1">
+                            <div className="flex items-center justify-between gap-2">
+                              <span className="font-extrabold text-xs text-slate-800 truncate">{ch.name}</span>
+                              {isBase ? (
+                                <span className="bg-indigo-600 text-white text-[10px] font-black px-2 py-0.5 rounded-full shrink-0 shadow-xs">
+                                  ⭐ 基础电台 (主频道)
+                                </span>
+                              ) : (
+                                <span className="bg-slate-100 text-slate-500 text-[10px] font-bold px-2 py-0.5 rounded-full shrink-0">
+                                  合入源电台
+                                </span>
+                              )}
+                            </div>
+
+                            {/* Metadata Badges */}
+                            <div className="flex flex-wrap items-center gap-1.5 text-[10px] text-slate-500">
+                              <span className="bg-slate-100 px-1.5 py-0.5 rounded font-mono font-bold text-slate-600">
+                                📶 {sourceCount} 条直播源
+                              </span>
+                              {ch.epgId && (
+                                <span className="bg-slate-100 px-1.5 py-0.5 rounded font-mono text-slate-600 truncate max-w-[120px]">
+                                  EPG: {ch.epgId}
+                                </span>
+                              )}
+                              {ch.qingtingId && (
+                                <span className="bg-indigo-50 text-indigo-700 px-1.5 py-0.5 rounded font-mono font-bold">
+                                  蜻蜓ID: {ch.qingtingId}
+                                </span>
+                              )}
+                              {(ch.province || ch.city) && (
+                                <span className="bg-slate-100 px-1.5 py-0.5 rounded text-slate-600">
+                                  📍 {[ch.province, ch.city].filter(Boolean).join(" ")}
+                                </span>
+                              )}
+                              {ch.category && (
+                                <span className="bg-slate-100 px-1.5 py-0.5 rounded text-slate-600">
+                                  🏷️ {ch.category}
+                                </span>
+                              )}
+                            </div>
+
+                            {ch.description && (
+                              <p className="text-[10px] text-slate-400 truncate mt-0.5 font-medium">
+                                简介: {ch.description}
+                              </p>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })}
+                </div>
+              </div>
+
+              {/* Merge Outcome Preview Box */}
+              {(() => {
+                const baseCh = channels.find(c => c.id === mergeBaseChannelId);
+                const otherChs = channels.filter(c => selectedChannelIds.includes(c.id) && c.id !== mergeBaseChannelId);
+                const totalSourcesCount = channels
+                  .filter(c => selectedChannelIds.includes(c.id))
+                  .reduce((acc, c) => acc + (c.sources ? c.sources.length : 0), 0);
+
+                if (!baseCh) return null;
+
+                return (
+                  <div className="bg-slate-50 border border-slate-200 rounded-xl p-3.5 space-y-2 text-xs">
+                    <div className="font-bold text-slate-700 flex items-center justify-between">
+                      <span>合并结果预览</span>
+                      <span className="text-[11px] font-normal text-slate-500">
+                        {otherChs.length} 个电台将被合入此基础电台
+                      </span>
+                    </div>
+                    <div className="grid grid-cols-2 gap-2 text-[11px] text-slate-600">
+                      <div className="bg-white p-2 rounded-lg border border-slate-150">
+                        <span className="text-slate-400 block text-[10px]">基础频道名称 (保留)</span>
+                        <span className="font-bold text-indigo-700 truncate block">{baseCh.name}</span>
+                      </div>
+                      <div className="bg-white p-2 rounded-lg border border-slate-150">
+                        <span className="text-slate-400 block text-[10px]">合入直播源总计</span>
+                        <span className="font-bold text-slate-800 block">{totalSourcesCount} 条（自动去重优化）</span>
+                      </div>
+                      <div className="bg-white p-2 rounded-lg border border-slate-150 col-span-2">
+                        <span className="text-slate-400 block text-[10px]">合入别名列表</span>
+                        <span className="text-slate-700 block truncate">
+                          {otherChs.map(c => c.name).join("、") || "无"}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })()}
+            </div>
+
+            <div className="flex justify-end gap-3 px-6 py-4 border-t border-slate-100 bg-slate-50/50 rounded-b-2xl">
+              <button
+                type="button"
+                onClick={() => setIsMergeModalOpen(false)}
+                disabled={isMergingChannels}
+                className="px-4 py-2 border border-slate-200 hover:bg-slate-100 text-slate-600 text-xs font-bold rounded-xl transition cursor-pointer disabled:opacity-50"
+              >
+                取消
+              </button>
+              <button
+                type="button"
+                onClick={executeChannelMerge}
+                disabled={isMergingChannels || !mergeBaseChannelId}
+                className="px-5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-xl transition cursor-pointer shadow-md shadow-indigo-100 flex items-center gap-1.5 disabled:opacity-50"
+              >
+                <GitMerge className="w-3.5 h-3.5" />
+                {isMergingChannels ? "正在合并处理中..." : "确认合并为该基础电台"}
+              </button>
+            </div>
           </div>
         </div>
       )}
