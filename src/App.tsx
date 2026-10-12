@@ -53,12 +53,23 @@ import {
   Archive,
   BookOpen,
   Tv,
-  Music
+  Music,
+  MapPin
 } from "lucide-react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { Channel, LiveSource, SyncConfig, TestStatus, EpgGuide, Tag, EpgSource } from "./types";
 import DashboardView from "./components/DashboardView";
 import { PRESET_LOGOS, PRESET_CATEGORIES, searchPresetLogos, findBestPresetLogo, PresetLogoItem } from "./data/presetLogos";
+
+export const ALL_STANDARD_PROVINCES = [
+  "北京", "天津", "河北", "山西", "内蒙古",
+  "辽宁", "吉林", "黑龙江",
+  "上海", "江苏", "浙江", "安徽", "福建", "江西", "山东",
+  "河南", "湖北", "湖南", "广东", "广西", "海南",
+  "重庆", "四川", "贵州", "云南", "西藏",
+  "陕西", "甘肃", "青海", "宁夏", "新疆",
+  "香港", "澳门", "台湾"
+];
 
 export const GITHUB_RADIO_PRESETS = [
   {
@@ -337,8 +348,32 @@ export default function App() {
   
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedCategory, setSelectedCategory] = useState("all");
+  const [selectedProvinceFilter, setSelectedProvinceFilter] = useState("all");
   const [channelStatusFilter, setChannelStatusFilter] = useState<"all" | "active" | "disabled">("all");
   const [selectedChannel, setSelectedChannel] = useState<Channel | null>(null);
+
+  // States for Batch Province Tagging
+  const [isBatchProvinceModalOpen, setIsBatchProvinceModalOpen] = useState(false);
+  const [batchProvinceOverwrite, setBatchProvinceOverwrite] = useState(false);
+  const [batchProvinceTarget, setBatchProvinceTarget] = useState<"selected" | "all">("selected");
+  const [isBatchProvinceProcessing, setIsBatchProvinceProcessing] = useState(false);
+  const [batchProvinceResult, setBatchProvinceResult] = useState<any>(null);
+
+  // States for Tags Management Tab
+  const [tagSearchKeyword, setTagSearchKeyword] = useState("");
+  const [tagTypeFilter, setTagTypeFilter] = useState<"all" | "province" | "custom" | "empty">("all");
+  const [isInitializingProvinces, setIsInitializingProvinces] = useState(false);
+  const [isCleaningUnusedTags, setIsCleaningUnusedTags] = useState(false);
+
+  // ChannelEditModal Tag Selection States (Search & Quick Create)
+  const [channelModalTagSearch, setChannelModalTagSearch] = useState("");
+  const [channelModalNewTagName, setChannelModalNewTagName] = useState("");
+  const [isCreatingChannelModalTag, setIsCreatingChannelModalTag] = useState(false);
+
+  // BatchTagModal Tag Selection States (Search & Quick Create)
+  const [batchModalTagSearch, setBatchModalTagSearch] = useState("");
+  const [batchModalNewTagName, setBatchModalNewTagName] = useState("");
+  const [isCreatingBatchModalTag, setIsCreatingBatchModalTag] = useState(false);
   
   // Loading states
   const [loading, setLoading] = useState(true);
@@ -1609,6 +1644,149 @@ export default function App() {
     );
   };
 
+  // Batch Province Auto-Tagging Helpers
+  const openBatchProvinceTagModal = (targetIds?: string[]) => {
+    if (targetIds && targetIds.length > 0) {
+      setBatchProvinceTarget("selected");
+    } else {
+      setBatchProvinceTarget("all");
+    }
+    setBatchProvinceOverwrite(false);
+    setBatchProvinceResult(null);
+    setIsBatchProvinceModalOpen(true);
+  };
+
+  const handleBatchProvinceTag = async () => {
+    setIsBatchProvinceProcessing(true);
+    try {
+      const ids = batchProvinceTarget === "selected" ? selectedChannelIds : undefined;
+      const res = await fetch("/api/channels/batch-province-tag", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          channelIds: ids && ids.length > 0 ? ids : undefined,
+          overwrite: batchProvinceOverwrite
+        })
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        setBatchProvinceResult(data);
+        showFeedback("success", data.message);
+        await fetchData();
+      } else {
+        showFeedback("error", data.error || "批量分析省市电台失败");
+      }
+    } catch (e: any) {
+      showFeedback("error", "网络请求异常: " + (e.message || ""));
+    } finally {
+      setIsBatchProvinceProcessing(false);
+    }
+  };
+
+  const handleInitProvinces = async () => {
+    setIsInitializingProvinces(true);
+    try {
+      const res = await fetch("/api/tags/init-provinces", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" }
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        showFeedback("success", data.message);
+        await fetchData();
+      } else {
+        showFeedback("error", data.error || "初始化省名标签库失败");
+      }
+    } catch (e) {
+      showFeedback("error", "网络连接异常");
+    } finally {
+      setIsInitializingProvinces(false);
+    }
+  };
+
+  const handleCleanupUnusedTags = async () => {
+    triggerConfirm(
+      "清理无关联空标签",
+      "确定要清理所有未关联任何电台的标签吗？系统内置的保护标签（如'其它'等）将保留。",
+      async () => {
+        setIsCleaningUnusedTags(true);
+        try {
+          const res = await fetch("/api/tags/cleanup-unused", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" }
+          });
+          const data = await res.json();
+          if (res.ok && data.success) {
+            showFeedback("success", data.message);
+            await fetchData();
+          } else {
+            showFeedback("error", data.error || "清理空标签失败");
+          }
+        } catch (e) {
+          showFeedback("error", "网络连接异常");
+        } finally {
+          setIsCleaningUnusedTags(false);
+        }
+      }
+    );
+  };
+
+  const handleQuickCreateTagForChannelModal = async () => {
+    const name = channelModalNewTagName.trim();
+    if (!name) return;
+    setIsCreatingChannelModalTag(true);
+    try {
+      const res = await fetch("/api/tags", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name })
+      });
+      const data = await res.json();
+      if (res.ok && data.id) {
+        if (!channelForm.groupIds.includes(data.id)) {
+          setChannelForm(prev => ({ ...prev, groupIds: [...prev.groupIds, data.id] }));
+        }
+        setChannelModalNewTagName("");
+        showFeedback("success", `已创建并勾选标签: ${data.name}`);
+        await fetchData();
+      } else {
+        showFeedback("error", data.error || "创建标签失败");
+      }
+    } catch (e) {
+      showFeedback("error", "网络连接异常");
+    } finally {
+      setIsCreatingChannelModalTag(false);
+    }
+  };
+
+  const handleQuickCreateTagForBatchModal = async () => {
+    const name = batchModalNewTagName.trim();
+    if (!name) return;
+    setIsCreatingBatchModalTag(true);
+    try {
+      const res = await fetch("/api/tags", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name })
+      });
+      const data = await res.json();
+      if (res.ok && data.id) {
+        if (!batchGroupForm.tagIds.includes(data.id)) {
+          setBatchGroupForm(prev => ({ ...prev, tagIds: [...(prev.tagIds || []), data.id] }));
+        }
+        setBatchModalNewTagName("");
+        showFeedback("success", `已创建并勾选标签: ${data.name}`);
+        await fetchData();
+      } else {
+        showFeedback("error", data.error || "创建标签失败");
+      }
+    } catch (e) {
+      showFeedback("error", "网络连接异常");
+    } finally {
+      setIsCreatingBatchModalTag(false);
+    }
+  };
+
   const handleBatchSourceDelete = () => {
     if (!selectedChannel) return;
     if (selectedSourceIds.length === 0) {
@@ -2624,6 +2802,8 @@ export default function App() {
       const matchesSearch = !cleanQuery ||
                             c.name.toLowerCase().replace(/[-_.\s]+/g, "").includes(cleanQuery) ||
                             c.alias.some(a => a.toLowerCase().replace(/[-_.\s]+/g, "").includes(cleanQuery)) ||
+                            (c.province && c.province.toLowerCase().replace(/[-_.\s]+/g, "").includes(cleanQuery)) ||
+                            (c.city && c.city.toLowerCase().replace(/[-_.\s]+/g, "").includes(cleanQuery)) ||
                             groupNames.some(gn => gn.toLowerCase().replace(/[-_.\s]+/g, "").includes(cleanQuery));
       
       const matchesCategory = selectedCategory === "all" || channelTags.some(gId => {
@@ -2631,11 +2811,16 @@ export default function App() {
         return g && g.name === selectedCategory;
       });
 
+      const matchesProvince = selectedProvinceFilter === "all" ||
+                            (selectedProvinceFilter === "has_province" && !!(c.province || c.city)) ||
+                            (selectedProvinceFilter === "no_province" && !(c.province || c.city)) ||
+                            (c.province === selectedProvinceFilter);
+
       const matchesStatus = channelStatusFilter === "all" ||
                             (channelStatusFilter === "active" && !c.disabled) ||
                             (channelStatusFilter === "disabled" && !!c.disabled);
 
-      return matchesSearch && matchesCategory && matchesStatus;
+      return matchesSearch && matchesCategory && matchesStatus && matchesProvince;
     });
 
     if (channelSortBy === "name_asc") {
@@ -2663,7 +2848,7 @@ export default function App() {
     }
 
     return list;
-  }, [channels, searchQuery, selectedCategory, channelStatusFilter, channelSortBy, tags]);
+  }, [channels, searchQuery, selectedCategory, selectedProvinceFilter, channelStatusFilter, channelSortBy, tags]);
 
   const channelListParentRef = useRef<HTMLDivElement>(null);
 
@@ -3065,18 +3250,59 @@ export default function App() {
 
               {channelSubTab === "tags" && (
                 <div className="bg-white rounded-2xl border border-slate-200 p-6 space-y-6 animate-fade-in" id="groups_manager_container">
-                  <div className="max-w-md space-y-3">
-                    <h3 className="font-bold text-slate-800 text-sm">👥 新建或编辑标签</h3>
-                    <p className="text-[11px] text-slate-500 leading-relaxed font-semibold">
-                      标签采用多对多（Many-to-Many）设计，频道可以归属于零个、一个或多个分组。删除标签不会删除对应的频道本身，该频道会自动关联默认备用标签。
-                    </p>
-                    
+                  {/* Top: Province Intelligence & Batch Tools Card */}
+                  <div className="p-4 bg-gradient-to-br from-teal-50/70 via-indigo-50/40 to-slate-50 border border-teal-200/60 rounded-2xl flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+                    <div className="space-y-1">
+                      <div className="flex items-center gap-2">
+                        <span className="p-1.5 bg-teal-600 text-white rounded-xl shadow-xs">
+                          <MapPin className="w-4 h-4" />
+                        </span>
+                        <h3 className="font-bold text-slate-800 text-sm">省市台智能打标引擎 & 标签库工具箱</h3>
+                      </div>
+                      <p className="text-[11px] text-slate-500 font-medium leading-relaxed">
+                        支持批量分析全国各省市广播电台，基于台名与城市地名对照字典自动打标；一键初始化全国 34 个省级行政区标准标签；一键清理零关联的无效空标签。
+                      </p>
+                    </div>
+
+                    <div className="flex flex-wrap items-center gap-2 w-full md:w-auto shrink-0">
+                      <button
+                        onClick={() => openBatchProvinceTagModal()}
+                        className="px-3.5 py-2 bg-teal-600 hover:bg-teal-700 text-white text-xs font-bold rounded-xl shadow-md shadow-teal-600/10 transition cursor-pointer flex items-center gap-1.5"
+                      >
+                        <Sparkles className="w-3.5 h-3.5" />
+                        批量分析省市打标
+                      </button>
+                      <button
+                        onClick={handleInitProvinces}
+                        disabled={isInitializingProvinces}
+                        className="px-3 py-2 bg-white hover:bg-slate-50 border border-slate-250 text-slate-700 text-xs font-bold rounded-xl transition cursor-pointer flex items-center gap-1.5 disabled:opacity-50 shadow-2xs"
+                      >
+                        <RefreshCw className={`w-3.5 h-3.5 text-indigo-600 ${isInitializingProvinces ? "animate-spin" : ""}`} />
+                        {isInitializingProvinces ? "正在初始化..." : "初始化34省标签"}
+                      </button>
+                      <button
+                        onClick={handleCleanupUnusedTags}
+                        disabled={isCleaningUnusedTags}
+                        className="px-3 py-2 bg-white hover:bg-rose-50 border border-rose-200 text-rose-600 text-xs font-bold rounded-xl transition cursor-pointer flex items-center gap-1.5 disabled:opacity-50 shadow-2xs"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                        {isCleaningUnusedTags ? "正在清理..." : "清理空标签"}
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Create New Tag Box */}
+                  <div className="max-w-xl space-y-3">
+                    <h4 className="font-bold text-slate-800 text-xs flex items-center gap-1.5">
+                      <Plus className="w-3.5 h-3.5 text-indigo-600" />
+                      新建实体标签
+                    </h4>
                     <form 
                       onSubmit={async (e) => {
                         e.preventDefault();
                         const target = e.currentTarget;
                         const formData = new FormData(target);
-                        const name = formData.get("name") as string;
+                        const name = (formData.get("name") as string || "").trim();
                         if (!name) return;
                         
                         try {
@@ -3086,7 +3312,7 @@ export default function App() {
                             body: JSON.stringify({ name })
                           });
                           if (res.ok) {
-                            showFeedback("success", "分组创建成功！");
+                            showFeedback("success", `标签 [${name}] 创建成功！`);
                             target.reset();
                             fetchData();
                           } else {
@@ -3097,93 +3323,236 @@ export default function App() {
                           showFeedback("error", "网络连接异常");
                         }
                       }}
-                      className="flex flex-col sm:flex-row gap-3 pt-1"
+                      className="flex flex-col sm:flex-row gap-2.5 pt-1"
                     >
                       <input 
                         type="text" 
                         name="name" 
                         required 
-                        placeholder="输入新标签名称, 如: 4K超清, 山东专区"
+                        placeholder="输入新标签名称, 如: 浙江, 交通广播, 4K高清"
                         className="flex-1 text-xs p-2.5 border border-slate-200 rounded-xl bg-slate-50 focus:outline-none focus:border-indigo-500 font-bold"
                       />
                       <button 
                         type="submit"
-                        className="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-xl shadow-md transition cursor-pointer"
+                        className="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-xl shadow-md transition cursor-pointer shrink-0"
                       >
                         创建标签
                       </button>
                     </form>
-                  </div>
 
-                  <div className="border-t border-slate-100 pt-6 space-y-4">
-                    <h4 className="font-bold text-slate-800 text-xs">已存在的实体直播标签目录 ({tags.length} 个)</h4>
-                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4" id="groups_cards_grid">
-                      {tags.map((g) => {
-                        const countChannels = channels.filter(c => (c.tagIds || c.groupIds || []).includes(g.id)).length;
+                    {/* Quick suggestion tags */}
+                    <div className="flex items-center gap-1.5 flex-wrap pt-1">
+                      <span className="text-[10px] text-slate-400 font-medium">常用快捷推荐:</span>
+                      {["北京", "上海", "广东", "浙江", "江苏", "山东", "交通广播", "音乐之声", "综合广播"].map(quickName => {
+                        const exists = tags.some(t => t.name === quickName);
                         return (
-                          <div key={g.id} className="p-4 border border-slate-200 rounded-2xl bg-slate-50/50 flex items-center justify-between hover:border-slate-350 transition" id={`group_item_${g.id}`}>
-                            <div className="space-y-1 pr-4 flex-1">
-                              <input 
-                                type="text"
-                                defaultValue={g.name}
-                                onBlur={async (e) => {
-                                  const val = e.target.value.trim();
-                                  if (!val || val === g.name) return;
-                                  try {
-                                    const res = await fetch(`/api/tags/${g.id}`, {
-                                      method: "PUT",
-                                      headers: { "Content-Type": "application/json" },
-                                      body: JSON.stringify({ name: val })
-                                    });
-                                    if (res.ok) {
-                                      showFeedback("success", "分组改名成功！");
-                                      fetchData();
-                                    } else {
-                                      e.target.value = g.name; // reset
-                                      showFeedback("error", "改名失败");
-                                    }
-                                  } catch (err) {
-                                    e.target.value = g.name;
-                                    showFeedback("error", "网络故障");
-                                  }
-                                }}
-                                className="font-bold text-slate-800 text-xs bg-transparent border-b border-transparent focus:border-indigo-500 focus:outline-none hover:bg-slate-200/45 p-0.5 rounded transition w-full font-semibold"
-                              />
-                              <p className="text-[10px] text-slate-400 font-medium">归属频道: <span className="font-mono text-slate-600 font-bold">{countChannels}</span> 个</p>
-                            </div>
-
-                            <button
-                              onClick={() => {
-                                if (g.id === "g_other" || g.name === "其它频道") {
-                                  showFeedback("error", "系统保护的内置备用标签，无法被手动删除");
-                                  return;
+                          <button
+                            key={quickName}
+                            type="button"
+                            onClick={async () => {
+                              if (exists) {
+                                setTagSearchKeyword(quickName);
+                                return;
+                              }
+                              try {
+                                const res = await fetch("/api/tags", {
+                                  method: "POST",
+                                  headers: { "Content-Type": "application/json" },
+                                  body: JSON.stringify({ name: quickName })
+                                });
+                                if (res.ok) {
+                                  showFeedback("success", `标签 [${quickName}] 创建成功！`);
+                                  fetchData();
                                 }
-                                triggerConfirm(
-                                  "删除标签",
-                                  `确定要删除 [${g.name}] 标签吗？所属频道不会被删除，它们会自动脱离关联分组。`,
-                                  async () => {
-                                    try {
-                                      const res = await fetch(`/api/tags/${g.id}`, { method: "DELETE" });
-                                      if (res.ok) {
-                                        showFeedback("success", "分组删除成功");
-                                        fetchData();
-                                      } else {
-                                        showFeedback("error", "删除失败");
-                                      }
-                                    } catch (e) {
-                                      showFeedback("error", "网络故障");
-                                    }
-                                  }
-                                );
-                              }}
-                              className="p-2 bg-white hover:bg-rose-50 border border-slate-250 text-slate-400 hover:text-rose-600 rounded-xl transition shadow-xs cursor-pointer"
-                              title="删除此标签"
-                            >
-                              <Trash2 className="w-3.5 h-3.5" />
-                            </button>
-                          </div>
+                              } catch (_) {}
+                            }}
+                            className={`text-[10px] px-2 py-0.5 rounded-lg border font-semibold transition cursor-pointer ${
+                              exists 
+                                ? "bg-slate-100 text-slate-600 border-slate-250 hover:bg-slate-200" 
+                                : "bg-indigo-50/70 text-indigo-700 border-indigo-200/70 hover:bg-indigo-100"
+                            }`}
+                            title={exists ? "已存在，点击在列表中定位" : "点击快速创建"}
+                          >
+                            {exists ? `✓ ${quickName}` : `+ ${quickName}`}
+                          </button>
                         );
                       })}
+                    </div>
+                  </div>
+
+                  {/* Search and Tag Type Filters */}
+                  <div className="border-t border-slate-100 pt-5 space-y-4">
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                      <div className="flex items-center gap-2">
+                        <h4 className="font-bold text-slate-800 text-xs">已存在的实体直播标签目录 ({tags.length} 个)</h4>
+                        {tagSearchKeyword && (
+                          <span className="text-[11px] font-bold text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded-full">
+                            搜索匹配
+                          </span>
+                        )}
+                      </div>
+
+                      <div className="flex items-center gap-2 flex-wrap">
+                        {/* Search input */}
+                        <div className="relative min-w-[180px]">
+                          <Search className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-1/2 -translate-y-1/2" />
+                          <input
+                            type="text"
+                            value={tagSearchKeyword}
+                            onChange={(e) => setTagSearchKeyword(e.target.value)}
+                            placeholder="搜索标签名称..."
+                            className="pl-8 pr-7 py-1.5 border border-slate-200 rounded-xl text-xs bg-slate-50 focus:bg-white w-full focus:outline-none focus:border-indigo-500 font-medium"
+                          />
+                          {tagSearchKeyword && (
+                            <button
+                              onClick={() => setTagSearchKeyword("")}
+                              className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 text-xs"
+                            >
+                              ✕
+                            </button>
+                          )}
+                        </div>
+
+                        {/* Tag Category Filter Chips */}
+                        <div className="flex items-center gap-1 bg-slate-100 p-0.5 rounded-xl border border-slate-200/70">
+                          <button
+                            onClick={() => setTagTypeFilter("all")}
+                            className={`px-2 py-1 rounded-lg text-[10px] font-bold transition cursor-pointer ${
+                              tagTypeFilter === "all" ? "bg-white text-slate-800 shadow-2xs" : "text-slate-500 hover:text-slate-800"
+                            }`}
+                          >
+                            全部 ({tags.length})
+                          </button>
+                          <button
+                            onClick={() => setTagTypeFilter("province")}
+                            className={`px-2 py-1 rounded-lg text-[10px] font-bold transition cursor-pointer ${
+                              tagTypeFilter === "province" ? "bg-teal-600 text-white shadow-2xs" : "text-slate-500 hover:text-teal-700"
+                            }`}
+                          >
+                            省名 ({tags.filter(t => ALL_STANDARD_PROVINCES.includes(t.name)).length})
+                          </button>
+                          <button
+                            onClick={() => setTagTypeFilter("custom")}
+                            className={`px-2 py-1 rounded-lg text-[10px] font-bold transition cursor-pointer ${
+                              tagTypeFilter === "custom" ? "bg-indigo-600 text-white shadow-2xs" : "text-slate-500 hover:text-indigo-700"
+                            }`}
+                          >
+                            常规 ({tags.filter(t => !ALL_STANDARD_PROVINCES.includes(t.name)).length})
+                          </button>
+                          <button
+                            onClick={() => setTagTypeFilter("empty")}
+                            className={`px-2 py-1 rounded-lg text-[10px] font-bold transition cursor-pointer ${
+                              tagTypeFilter === "empty" ? "bg-rose-600 text-white shadow-2xs" : "text-slate-500 hover:text-rose-700"
+                            }`}
+                          >
+                            空标签 ({tags.filter(t => channels.filter(c => (c.tagIds || c.groupIds || []).includes(t.id)).length === 0).length})
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Tag Cards Grid */}
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4" id="groups_cards_grid">
+                      {tags
+                        .filter(g => {
+                          if (tagSearchKeyword.trim() && !g.name.toLowerCase().includes(tagSearchKeyword.toLowerCase().trim())) {
+                            return false;
+                          }
+                          const isProv = ALL_STANDARD_PROVINCES.includes(g.name);
+                          const count = channels.filter(c => (c.tagIds || c.groupIds || []).includes(g.id)).length;
+                          if (tagTypeFilter === "province" && !isProv) return false;
+                          if (tagTypeFilter === "custom" && isProv) return false;
+                          if (tagTypeFilter === "empty" && count > 0) return false;
+                          return true;
+                        })
+                        .map((g) => {
+                          const countChannels = channels.filter(c => (c.tagIds || c.groupIds || []).includes(g.id)).length;
+                          const isProv = ALL_STANDARD_PROVINCES.includes(g.name);
+                          return (
+                            <div key={g.id} className="p-4 border border-slate-200 rounded-2xl bg-slate-50/50 flex items-center justify-between hover:border-slate-350 transition gap-3" id={`group_item_${g.id}`}>
+                              <div className="space-y-1.5 pr-2 flex-1 min-w-0">
+                                <div className="flex items-center gap-1.5">
+                                  <input 
+                                    type="text"
+                                    defaultValue={g.name}
+                                    onBlur={async (e) => {
+                                      const val = e.target.value.trim();
+                                      if (!val || val === g.name) return;
+                                      try {
+                                        const res = await fetch(`/api/tags/${g.id}`, {
+                                          method: "PUT",
+                                          headers: { "Content-Type": "application/json" },
+                                          body: JSON.stringify({ name: val })
+                                        });
+                                        if (res.ok) {
+                                          showFeedback("success", "标签改名成功！");
+                                          fetchData();
+                                        } else {
+                                          e.target.value = g.name;
+                                          showFeedback("error", "改名失败");
+                                        }
+                                      } catch (err) {
+                                        e.target.value = g.name;
+                                        showFeedback("error", "网络故障");
+                                      }
+                                    }}
+                                    className="font-bold text-slate-800 text-xs bg-transparent border-b border-transparent focus:border-indigo-500 focus:outline-none hover:bg-slate-200/45 p-0.5 rounded transition w-full font-semibold truncate"
+                                  />
+                                  {isProv && (
+                                    <span className="text-[9px] font-bold bg-teal-50 text-teal-700 border border-teal-200 px-1.5 py-0.2 rounded shrink-0">
+                                      省份
+                                    </span>
+                                  )}
+                                </div>
+                                <div className="flex items-center justify-between text-[10px]">
+                                  <p className="text-slate-400 font-medium">归属频道: <span className="font-mono text-slate-700 font-bold">{countChannels}</span> 个</p>
+                                  {countChannels > 0 && (
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        setSelectedCategory(g.name);
+                                        setChannelSubTab("channels");
+                                      }}
+                                      className="text-indigo-600 hover:text-indigo-800 font-bold underline cursor-pointer"
+                                    >
+                                      查看频道 →
+                                    </button>
+                                  )}
+                                </div>
+                              </div>
+
+                              <button
+                                onClick={() => {
+                                  if (g.id === "g_other" || g.name === "其它频道") {
+                                    showFeedback("error", "系统保护的内置备用标签，无法被手动删除");
+                                    return;
+                                  }
+                                  triggerConfirm(
+                                    "删除标签",
+                                    `确定要删除 [${g.name}] 标签吗？所属频道不会被删除，它们会自动脱离关联分组。`,
+                                    async () => {
+                                      try {
+                                        const res = await fetch(`/api/tags/${g.id}`, { method: "DELETE" });
+                                        if (res.ok) {
+                                          showFeedback("success", "分组删除成功");
+                                          fetchData();
+                                        } else {
+                                          showFeedback("error", "删除失败");
+                                        }
+                                      } catch (e) {
+                                        showFeedback("error", "网络故障");
+                                      }
+                                    }
+                                  );
+                                }}
+                                className="p-2 bg-white hover:bg-rose-50 border border-slate-250 text-slate-400 hover:text-rose-600 rounded-xl transition shadow-xs cursor-pointer shrink-0"
+                                title="删除此标签"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
+                            </div>
+                          );
+                        })}
                     </div>
                   </div>
                 </div>
@@ -3276,22 +3645,65 @@ export default function App() {
                     </div>
                   </div>
 
-                  {/* Multi-line Wrapping Category Tag Selector */}
-                  <div className="bg-white border border-slate-200/90 rounded-2xl p-3 shadow-2xs space-y-2" id="category_pills_container">
+                  {/* Multi-line Wrapping Category Tag Selector & Province Filter */}
+                  <div className="bg-white border border-slate-200/90 rounded-2xl p-3 shadow-2xs space-y-2.5" id="category_pills_container">
                     <div className="flex items-center justify-between flex-wrap gap-2 text-xs">
-                      <div className="flex items-center gap-1.5 font-bold text-slate-700">
-                        <Filter className="w-3.5 h-3.5 text-indigo-500" />
-                        <span>标签分类筛选</span>
-                        <span className="text-[10px] text-slate-400 font-normal">({tags.length} 个标签)</span>
+                      <div className="flex items-center gap-3 flex-wrap">
+                        <div className="flex items-center gap-1.5 font-bold text-slate-700">
+                          <Filter className="w-3.5 h-3.5 text-indigo-500" />
+                          <span>标签分类</span>
+                          <span className="text-[10px] text-slate-400 font-normal">({tags.length} 个)</span>
+                        </div>
+
+                        {/* Province Selector Filter */}
+                        <div className="flex items-center gap-1.5 bg-slate-50 border border-slate-200/80 px-2 py-0.5 rounded-xl">
+                          <MapPin className="w-3 h-3 text-teal-600 shrink-0" />
+                          <span className="text-[11px] font-bold text-slate-600 shrink-0">省市台:</span>
+                          <select
+                            value={selectedProvinceFilter}
+                            onChange={(e) => setSelectedProvinceFilter(e.target.value)}
+                            className="text-[11px] font-bold bg-transparent border-none text-teal-800 focus:outline-none cursor-pointer py-0.5"
+                          >
+                            <option value="all">全部省市 (不限)</option>
+                            <option value="has_province">📍 仅已标明省市台 ({channels.filter(c => c.province || c.city).length})</option>
+                            <option value="no_province">⚪ 仅未标明省份 ({channels.filter(c => !c.province && !c.city).length})</option>
+                            <optgroup label="—— 34 个省级行政区 ——">
+                              {ALL_STANDARD_PROVINCES.map(p => {
+                                const count = channels.filter(c => c.province === p).length;
+                                if (count === 0) return null;
+                                return <option key={p} value={p}>{p} ({count} 个)</option>;
+                              })}
+                            </optgroup>
+                          </select>
+                          {selectedProvinceFilter !== "all" && (
+                            <button
+                              onClick={() => setSelectedProvinceFilter("all")}
+                              className="text-[10px] text-teal-600 hover:text-teal-800 font-bold bg-teal-50 hover:bg-teal-100 px-1.5 py-0.2 rounded transition cursor-pointer"
+                            >
+                              重置
+                            </button>
+                          )}
+                        </div>
                       </div>
-                      {selectedCategory !== "all" && (
+
+                      <div className="flex items-center gap-2">
                         <button
-                          onClick={() => setSelectedCategory("all")}
-                          className="text-[10px] text-indigo-600 hover:text-indigo-800 font-bold bg-indigo-50 hover:bg-indigo-100 px-2 py-0.5 rounded-lg transition cursor-pointer"
+                          onClick={() => openBatchProvinceTagModal()}
+                          className="px-2.5 py-1 bg-gradient-to-r from-teal-600 to-emerald-600 hover:from-teal-700 hover:to-emerald-700 text-white text-[11px] font-bold rounded-xl shadow-xs transition cursor-pointer flex items-center gap-1 shrink-0"
+                          title="批量自动分析电台所属省份并打上省名标签"
                         >
-                          重置为全部
+                          <Sparkles className="w-3 h-3" />
+                          批量分析省市打标
                         </button>
-                      )}
+                        {selectedCategory !== "all" && (
+                          <button
+                            onClick={() => setSelectedCategory("all")}
+                            className="text-[10px] text-indigo-600 hover:text-indigo-800 font-bold bg-indigo-50 hover:bg-indigo-100 px-2 py-0.5 rounded-lg transition cursor-pointer"
+                          >
+                            重置为全部
+                          </button>
+                        )}
+                      </div>
                     </div>
 
                     <div className="flex flex-wrap items-center gap-1.5" id="category_pills">
@@ -3408,6 +3820,14 @@ export default function App() {
                           >
                             <Layers className="w-3 h-3" />
                             批量标签
+                          </button>
+                          <button
+                            onClick={() => openBatchProvinceTagModal(selectedChannelIds)}
+                            className="bg-teal-600 hover:bg-teal-700 text-white text-[10px] font-bold px-2.5 py-1 rounded-lg transition shadow-xs cursor-pointer flex items-center gap-1"
+                            title="根据频道名称与台标归属，批量分析并打上所属省份标签"
+                          >
+                            <MapPin className="w-3 h-3" />
+                            省市打标 ({selectedChannelIds.length})
                           </button>
                           <button
                             onClick={() => handleBatchSetDisabled(true)}
@@ -3558,6 +3978,12 @@ export default function App() {
                                     {ch.disabled && (
                                       <span className="text-[9px] font-bold bg-amber-100 text-amber-800 border border-amber-300 px-1.5 py-0.2 rounded flex items-center gap-0.5 shrink-0" title="该频道已停播（不再参与对外导出，仅留存记录）">
                                         <PowerOff className="w-2.5 h-2.5 text-amber-700" /> 已停播
+                                      </span>
+                                    )}
+                                    {(ch.province || ch.city) && (
+                                      <span className="text-[9px] font-bold bg-teal-50 text-teal-800 border border-teal-200/80 px-1.5 py-0.2 rounded flex items-center gap-0.5 shrink-0" title={`归属省市: ${[ch.province, ch.city].filter(Boolean).join(" ")}`}>
+                                        <MapPin className="w-2.5 h-2.5 text-teal-600" />
+                                        {[ch.province, ch.city].filter(Boolean).join("·")}
                                       </span>
                                     )}
                                   </p>
@@ -6693,13 +7119,102 @@ export default function App() {
                   </div>
                 )}
 
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div className="space-y-1.5 font-sans">
-                    <div className="border border-slate-200 rounded-xl bg-slate-50 p-2.5 max-h-32 overflow-y-auto space-y-1" id="group_checkboxes_pnl">
-                      {tags.map((g) => {
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between text-xs font-bold text-slate-700">
+                    <span className="flex items-center gap-1.5">
+                      <Layers className="w-3.5 h-3.5 text-indigo-600" />
+                      关联分组标签 (多对多)
+                      <span className="text-[10px] text-slate-400 font-normal">已选 {channelForm.groupIds.length} 个</span>
+                    </span>
+                    {channelForm.groupIds.length > 0 && (
+                      <button
+                        type="button"
+                        onClick={() => setChannelForm({ ...channelForm, groupIds: [] })}
+                        className="text-[10px] text-rose-500 hover:text-rose-700 font-bold"
+                      >
+                        清空已选
+                      </button>
+                    )}
+                  </div>
+
+                  {/* Selected Tags Badges */}
+                  {channelForm.groupIds.length > 0 && (
+                    <div className="flex flex-wrap gap-1 p-2 bg-indigo-50/40 rounded-xl border border-indigo-100">
+                      {channelForm.groupIds.map(gId => {
+                        const tagObj = tags.find(t => t.id === gId);
+                        if (!tagObj) return null;
+                        return (
+                          <span key={gId} className="inline-flex items-center gap-1 text-[10px] font-bold bg-indigo-100/80 text-indigo-800 px-2 py-0.5 rounded-lg border border-indigo-200">
+                            {tagObj.name}
+                            <button
+                              type="button"
+                              onClick={() => setChannelForm({ ...channelForm, groupIds: channelForm.groupIds.filter(id => id !== gId) })}
+                              className="text-indigo-400 hover:text-indigo-700 font-bold"
+                            >
+                              ✕
+                            </button>
+                          </span>
+                        );
+                      })}
+                    </div>
+                  )}
+
+                  {/* Search and Quick Create Box */}
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                    <div className="relative">
+                      <Search className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-1/2 -translate-y-1/2" />
+                      <input
+                        type="text"
+                        placeholder="搜索现有标签 (如: 浙江, 交通)..."
+                        value={channelModalTagSearch}
+                        onChange={(e) => setChannelModalTagSearch(e.target.value)}
+                        className="w-full text-xs pl-8 pr-6 py-1.5 border border-slate-200 rounded-lg bg-slate-50 focus:bg-white focus:outline-none focus:border-indigo-500 font-medium"
+                      />
+                      {channelModalTagSearch && (
+                        <button
+                          type="button"
+                          onClick={() => setChannelModalTagSearch("")}
+                          className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 text-xs"
+                        >
+                          ✕
+                        </button>
+                      )}
+                    </div>
+
+                    <div className="flex gap-1.5">
+                      <input
+                        type="text"
+                        placeholder="输入新标签名直接创建..."
+                        value={channelModalNewTagName}
+                        onChange={(e) => setChannelModalNewTagName(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") {
+                            e.preventDefault();
+                            handleQuickCreateTagForChannelModal();
+                          }
+                        }}
+                        className="flex-1 text-xs px-2.5 py-1.5 border border-slate-200 rounded-lg bg-slate-50 focus:bg-white focus:outline-none focus:border-indigo-500 font-medium"
+                      />
+                      <button
+                        type="button"
+                        onClick={handleQuickCreateTagForChannelModal}
+                        disabled={!channelModalNewTagName.trim() || isCreatingChannelModalTag}
+                        className="px-2.5 py-1.5 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white text-[11px] font-bold rounded-lg transition cursor-pointer flex items-center gap-1 shrink-0"
+                      >
+                        <Plus className="w-3 h-3" />
+                        新建并勾选
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Checkbox Grid */}
+                  <div className="border border-slate-200 rounded-xl bg-slate-50/60 p-2.5 max-h-36 overflow-y-auto space-y-1 grid grid-cols-2 sm:grid-cols-3 gap-1.5" id="group_checkboxes_pnl">
+                    {tags
+                      .filter(g => !channelModalTagSearch || g.name.toLowerCase().includes(channelModalTagSearch.toLowerCase().trim()))
+                      .map((g) => {
                         const isChecked = channelForm.groupIds.includes(g.id);
                         return (
-                          <label key={g.id} className={`flex items-center gap-2 cursor-pointer py-1.5 rounded-lg px-2.5 select-none transition ${isChecked ? 'bg-indigo-50 border border-indigo-100' : 'hover:bg-slate-100/80 border border-transparent'}`}>
+                          <label key={g.id} className={`flex items-center gap-1.5 cursor-pointer py-1.5 rounded-lg px-2 select-none transition ${isChecked ? 'bg-indigo-50 border border-indigo-200 text-indigo-700 font-bold' : 'hover:bg-slate-100 border border-transparent text-slate-700'}`}>
                             <input
                               type="checkbox"
                               checked={isChecked}
@@ -6715,25 +7230,15 @@ export default function App() {
                               }}
                               className="rounded text-indigo-600 focus:ring-indigo-500 w-3.5 h-3.5 border-slate-300"
                             />
-                            <span className={`text-[11px] font-bold ${isChecked ? 'text-indigo-700' : 'text-slate-700'}`}>{g.name}</span>
+                            <span className="text-[11px] truncate">{g.name}</span>
                           </label>
                         );
                       })}
-                    </div>
-                  </div>
-
-                  <div className="space-y-1.5 flex flex-col justify-between font-sans">
-                    <div>
-                      <label>创建并关联新标签 (动态逗号分隔)</label>
-                      <input
-                        type="text"
-                        value={channelForm.newGroupsString}
-                        onChange={(e)=>setChannelForm({...channelForm, newGroupsString: e.target.value})}
-                        placeholder="如: 交通台, 音乐台, 浙江卫视"
-                        className="w-full text-xs p-2.5 mt-1 border border-slate-200 rounded-xl focus:border-indigo-500 bg-slate-50 focus:outline-none placeholder-slate-400 text-slate-800"
-                      />
-                    </div>
-                    <p className="text-[10px] text-slate-400 font-medium leading-relaxed font-sans">可以直接在此输入想加入的新类型，保存时系统会自动创建并多对多绑定。</p>
+                    {tags.filter(g => !channelModalTagSearch || g.name.toLowerCase().includes(channelModalTagSearch.toLowerCase().trim())).length === 0 && (
+                      <div className="col-span-full py-3 text-center text-xs text-slate-400">
+                        未检索到匹配标签，可在上方直接新建并自动勾选
+                      </div>
+                    )}
                   </div>
                 </div>
               </div>
@@ -7272,41 +7777,122 @@ export default function App() {
               </div>
 
               <div className="space-y-2">
-                <label className="text-slate-700 block">选择目标标签 (可单选或多选) *</label>
-                <div className="grid grid-cols-2 gap-2 max-h-48 overflow-y-auto p-2.5 bg-slate-50/50 border border-slate-200 rounded-xl">
-                  {tags.map((group) => {
-                    const isGroupChecked = batchGroupForm.tagIds.includes(group.id);
-                    return (
-                      <label 
-                        key={group.id} 
-                        className={`flex items-center gap-2 p-2 rounded-lg border cursor-pointer select-none transition ${
-                          isGroupChecked 
-                            ? "bg-blue-50/60 border-blue-200 text-blue-700 font-bold" 
-                            : "bg-white border-slate-200 text-slate-600 hover:bg-slate-50"
-                        }`}
+                <div className="flex items-center justify-between">
+                  <label className="text-slate-700 block font-bold">选择目标标签 (可单选或多选) *</label>
+                  <span className="text-[10px] text-slate-400 font-normal">已选 {batchGroupForm.tagIds?.length || 0} 个</span>
+                </div>
+
+                {/* Selected Tags Badges */}
+                {(batchGroupForm.tagIds || []).length > 0 && (
+                  <div className="flex flex-wrap gap-1 p-2 bg-blue-50/50 rounded-xl border border-blue-100 max-h-20 overflow-y-auto">
+                    {batchGroupForm.tagIds.map(gId => {
+                      const tagObj = tags.find(t => t.id === gId);
+                      if (!tagObj) return null;
+                      return (
+                        <span key={gId} className="inline-flex items-center gap-1 text-[10px] font-bold bg-blue-100 text-blue-800 px-2 py-0.5 rounded-lg border border-blue-200">
+                          {tagObj.name}
+                          <button
+                            type="button"
+                            onClick={() => setBatchGroupForm({ ...batchGroupForm, tagIds: batchGroupForm.tagIds.filter(id => id !== gId) })}
+                            className="text-blue-400 hover:text-blue-700 font-bold"
+                          >
+                            ✕
+                          </button>
+                        </span>
+                      );
+                    })}
+                  </div>
+                )}
+
+                {/* Search and Quick Create Box */}
+                <div className="space-y-1.5">
+                  <div className="relative">
+                    <Search className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-1/2 -translate-y-1/2" />
+                    <input
+                      type="text"
+                      placeholder="搜索现有标签 (如: 浙江, 交通)..."
+                      value={batchModalTagSearch}
+                      onChange={(e) => setBatchModalTagSearch(e.target.value)}
+                      className="w-full text-xs pl-8 pr-6 py-1.5 border border-slate-200 rounded-lg bg-slate-50 focus:bg-white focus:outline-none focus:border-indigo-500 font-medium"
+                    />
+                    {batchModalTagSearch && (
+                      <button
+                        type="button"
+                        onClick={() => setBatchModalTagSearch("")}
+                        className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 text-xs"
                       >
-                        <input
-                          type="checkbox"
-                          className="w-3.5 h-3.5 text-blue-600 border-slate-300 rounded focus:ring-blue-500 cursor-pointer"
-                          checked={isGroupChecked}
-                          onChange={(e) => {
-                            if (e.target.checked) {
-                              setBatchGroupForm({
-                                ...batchGroupForm,
-                                tagIds: [...(batchGroupForm.tagIds || []), group.id]
-                              });
-                            } else {
-                              setBatchGroupForm({
-                                ...batchGroupForm,
-                                tagIds: (batchGroupForm.tagIds || []).filter(id => id !== group.id)
-                              });
-                            }
-                          }}
-                        />
-                        <span className="truncate">{group.name}</span>
-                      </label>
-                    );
-                  })}
+                        ✕
+                      </button>
+                    )}
+                  </div>
+
+                  <div className="flex gap-1.5">
+                    <input
+                      type="text"
+                      placeholder="输入新标签名直接创建..."
+                      value={batchModalNewTagName}
+                      onChange={(e) => setBatchModalNewTagName(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") {
+                          e.preventDefault();
+                          handleQuickCreateTagForBatchModal();
+                        }
+                      }}
+                      className="flex-1 text-xs px-2.5 py-1.5 border border-slate-200 rounded-lg bg-slate-50 focus:bg-white focus:outline-none focus:border-indigo-500 font-medium"
+                    />
+                    <button
+                      type="button"
+                      onClick={handleQuickCreateTagForBatchModal}
+                      disabled={!batchModalNewTagName.trim() || isCreatingBatchModalTag}
+                      className="px-2.5 py-1.5 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white text-[11px] font-bold rounded-lg transition cursor-pointer flex items-center gap-1 shrink-0"
+                    >
+                      <Plus className="w-3 h-3" />
+                      新建并勾选
+                    </button>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-2 max-h-48 overflow-y-auto p-2.5 bg-slate-50/50 border border-slate-200 rounded-xl">
+                  {tags
+                    .filter(g => !batchModalTagSearch || g.name.toLowerCase().includes(batchModalTagSearch.toLowerCase().trim()))
+                    .map((group) => {
+                      const isGroupChecked = batchGroupForm.tagIds.includes(group.id);
+                      return (
+                        <label 
+                          key={group.id} 
+                          className={`flex items-center gap-2 p-2 rounded-lg border cursor-pointer select-none transition ${
+                            isGroupChecked 
+                              ? "bg-blue-50/60 border-blue-200 text-blue-700 font-bold" 
+                              : "bg-white border-slate-200 text-slate-600 hover:bg-slate-50"
+                          }`}
+                        >
+                          <input
+                            type="checkbox"
+                            className="w-3.5 h-3.5 text-blue-600 border-slate-300 rounded focus:ring-blue-500 cursor-pointer"
+                            checked={isGroupChecked}
+                            onChange={(e) => {
+                              if (e.target.checked) {
+                                setBatchGroupForm({
+                                  ...batchGroupForm,
+                                  tagIds: [...(batchGroupForm.tagIds || []), group.id]
+                                });
+                              } else {
+                                setBatchGroupForm({
+                                  ...batchGroupForm,
+                                  tagIds: (batchGroupForm.tagIds || []).filter(id => id !== group.id)
+                                });
+                              }
+                            }}
+                          />
+                          <span className="truncate">{group.name}</span>
+                        </label>
+                      );
+                    })}
+                  {tags.filter(g => !batchModalTagSearch || g.name.toLowerCase().includes(batchModalTagSearch.toLowerCase().trim())).length === 0 && (
+                    <div className="col-span-full py-4 text-center text-xs text-slate-400">
+                      未检索到匹配标签，可在上方直接新建并自动勾选
+                    </div>
+                  )}
                 </div>
                 <p className="text-[10px] text-slate-400 font-medium font-sans leading-relaxed">
                   {batchGroupForm.mode === "append" 
@@ -7924,6 +8510,138 @@ export default function App() {
               >
                 <GitMerge className="w-3.5 h-3.5" />
                 {isMergingChannels ? "正在合并处理中..." : "确认合并为该基础电台"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal Dialog: Batch Province Auto-Tagging */}
+      {isBatchProvinceModalOpen && (
+        <div className="fixed inset-0 z-[96] bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 font-sans" id="batch_province_modal">
+          <div className="bg-white rounded-2xl max-w-xl w-full shadow-2xl border border-slate-150 flex flex-col animate-fade-in font-sans max-h-[90vh]">
+            <div className="flex justify-between items-center px-6 py-5 border-b border-slate-100 flex-shrink-0">
+              <div className="flex items-center gap-2.5">
+                <div className="w-8 h-8 rounded-xl bg-teal-50 text-teal-600 flex items-center justify-center font-bold">
+                  <MapPin className="w-4 h-4" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-black text-slate-800">批量分析电台并打省名标签</h3>
+                  <p className="text-[11px] text-slate-500 font-medium">智能识别全国省市台归属并打上标准省份标签</p>
+                </div>
+              </div>
+              <button 
+                type="button" 
+                className="text-slate-400 hover:text-slate-600 font-bold p-1 rounded-lg hover:bg-slate-50 transition cursor-pointer" 
+                onClick={() => setIsBatchProvinceModalOpen(false)}
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="p-6 space-y-4 overflow-y-auto flex-1 font-sans">
+              <div className="p-3.5 bg-teal-50/60 rounded-xl border border-teal-100 text-xs text-teal-900 space-y-1.5 leading-relaxed font-sans">
+                <p className="font-bold flex items-center gap-1.5">
+                  <Sparkles className="w-3.5 h-3.5 text-teal-600" />
+                  智能省市分析打标原理
+                </p>
+                <p className="text-[11px] text-teal-800/90 font-medium">
+                  基于电台名称（如“浙江之声”、“广州交通台”）、台标归属、城市别称对照字典（含全国所有地级市和简称别名）以及蜻蜓FM电台库，智能推断电台省份与城市，自动将电台归入对应省份标签（如“浙江”、“广东”等），并补全电台的省份和城市属性。
+                </p>
+              </div>
+
+              {/* Scope selection */}
+              <div className="space-y-2">
+                <label className="text-xs font-bold text-slate-700 block">分析范围</label>
+                <div className="space-y-2">
+                  {selectedChannelIds.length > 0 && (
+                    <label className="flex items-center gap-2.5 p-3 rounded-xl border border-slate-200 cursor-pointer hover:bg-slate-50 transition">
+                      <input
+                        type="radio"
+                        name="batchProvinceTarget"
+                        checked={batchProvinceTarget === "selected"}
+                        onChange={() => setBatchProvinceTarget("selected")}
+                        className="text-teal-600 focus:ring-teal-500 w-4 h-4"
+                      />
+                      <div>
+                        <p className="text-xs font-bold text-slate-800">仅分析当前已选中的频道</p>
+                        <p className="text-[10px] text-slate-400 font-medium">共选中 {selectedChannelIds.length} 个电台频道</p>
+                      </div>
+                    </label>
+                  )}
+                  <label className="flex items-center gap-2.5 p-3 rounded-xl border border-slate-200 cursor-pointer hover:bg-slate-50 transition">
+                    <input
+                      type="radio"
+                      name="batchProvinceTarget"
+                      checked={batchProvinceTarget === "all"}
+                      onChange={() => setBatchProvinceTarget("all")}
+                      className="text-teal-600 focus:ring-teal-500 w-4 h-4"
+                    />
+                    <div>
+                      <p className="text-xs font-bold text-slate-800">分析全部电台频道</p>
+                      <p className="text-[10px] text-slate-400 font-medium">全库共 {channels.length} 个电台频道</p>
+                    </div>
+                  </label>
+                </div>
+              </div>
+
+              {/* Overwrite option */}
+              <div className="p-3 bg-slate-50 rounded-xl border border-slate-200/80">
+                <label className="flex items-center gap-2 cursor-pointer select-none">
+                  <input
+                    type="checkbox"
+                    checked={batchProvinceOverwrite}
+                    onChange={(e) => setBatchProvinceOverwrite(e.target.checked)}
+                    className="rounded text-teal-600 focus:ring-teal-500 w-3.5 h-3.5 border-slate-300"
+                  />
+                  <div>
+                    <span className="text-xs font-bold text-slate-700">覆盖已存在的省份标签</span>
+                    <p className="text-[10px] text-slate-400 font-medium">默认未勾选：仅为尚未被打上省名标签的电台进行识别补齐，不修改已有省份</p>
+                  </div>
+                </label>
+              </div>
+
+              {/* Results display if executed */}
+              {batchProvinceResult && (
+                <div className="p-4 bg-emerald-50 rounded-xl border border-emerald-200 space-y-2">
+                  <div className="flex items-center gap-2 text-emerald-800 font-bold text-xs">
+                    <CheckCircle className="w-4 h-4 text-emerald-600" />
+                    <span>打标完成！</span>
+                  </div>
+                  <p className="text-xs text-emerald-700 font-medium">{batchProvinceResult.message}</p>
+                  {batchProvinceResult.details && batchProvinceResult.details.length > 0 && (
+                    <div className="mt-2 max-h-36 overflow-y-auto border border-emerald-100 rounded-lg bg-white/80 p-2 space-y-1">
+                      <p className="text-[10px] font-bold text-slate-500 mb-1">部分成功识别明细 (前50条):</p>
+                      {batchProvinceResult.details.map((item: any, idx: number) => (
+                        <div key={idx} className="text-[11px] flex items-center justify-between py-0.5 border-b border-slate-100 last:border-b-0">
+                          <span className="font-semibold text-slate-800 truncate max-w-[200px]">{item.name}</span>
+                          <span className="text-teal-700 font-bold bg-teal-50 px-1.5 py-0.2 rounded border border-teal-100">
+                            📍 {item.province} {item.city}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+
+            <div className="flex justify-end gap-2.5 px-6 py-4 bg-slate-50 border-t border-slate-100 rounded-b-2xl">
+              <button
+                type="button"
+                onClick={() => setIsBatchProvinceModalOpen(false)}
+                className="px-4 py-2 border border-slate-200 hover:bg-slate-100 text-slate-600 text-xs font-bold rounded-xl transition cursor-pointer"
+              >
+                {batchProvinceResult ? "关闭" : "取消"}
+              </button>
+              <button
+                type="button"
+                onClick={handleBatchProvinceTag}
+                disabled={isBatchProvinceProcessing}
+                className="px-5 py-2 bg-teal-600 hover:bg-teal-700 text-white text-xs font-bold rounded-xl transition cursor-pointer shadow-md shadow-teal-100 flex items-center gap-1.5 disabled:opacity-50"
+              >
+                <Sparkles className="w-3.5 h-3.5" />
+                {isBatchProvinceProcessing ? "正在智能分析打标中..." : "开始智能打标"}
               </button>
             </div>
           </div>

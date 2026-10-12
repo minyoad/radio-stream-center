@@ -594,7 +594,155 @@ function resolveCategoryTagIds(categoryInput: string | string[], allowCreate: bo
   return tagIds;
 }
 
-// Generate default epgId from channel name. CCTV5 and CCTV5+ are distinguished by keeping '+'. If processed epgId is empty, fallback to channel name.
+// 34 standard provincial administrative regions in China
+export const ALL_STANDARD_PROVINCES = [
+  "北京", "天津", "河北", "山西", "内蒙古",
+  "辽宁", "吉林", "黑龙江",
+  "上海", "江苏", "浙江", "安徽", "福建", "江西", "山东",
+  "河南", "湖北", "湖南", "广东", "广西", "海南",
+  "重庆", "四川", "贵州", "云南", "西藏",
+  "陕西", "甘肃", "青海", "宁夏", "新疆",
+  "香港", "澳门", "台湾"
+];
+
+const PROVINCE_MAP: Record<string, string> = {
+  "北京市": "北京", "北京": "北京",
+  "上海市": "上海", "上海": "上海",
+  "天津市": "天津", "天津": "天津",
+  "重庆市": "重庆", "重庆": "重庆",
+  "江苏省": "江苏", "江苏": "江苏",
+  "浙江省": "浙江", "浙江": "浙江",
+  "安徽省": "安徽", "安徽": "安徽",
+  "福建省": "福建", "福建": "福建",
+  "江西省": "江西", "江西": "江西",
+  "山东省": "山东", "山东": "山东",
+  "广东省": "广东", "广东": "广东",
+  "广西壮族自治区": "广西", "广西省": "广西", "广西": "广西",
+  "海南省": "海南", "海南": "海南",
+  "河南省": "河南", "河南": "河南",
+  "湖北省": "湖北", "湖北": "湖北",
+  "湖南省": "湖南", "湖南": "湖南",
+  "河北省": "河北", "河北": "河北",
+  "山西省": "山西", "山西": "山西",
+  "内蒙古自治区": "内蒙古", "内蒙古": "内蒙古", "内蒙": "内蒙古",
+  "辽宁省": "辽宁", "辽宁": "辽宁",
+  "吉林省": "吉林", "吉林": "吉林",
+  "黑龙江省": "黑龙江", "黑龙江": "黑龙江",
+  "四川省": "四川", "四川": "四川",
+  "贵州省": "贵州", "贵州": "贵州",
+  "云南省": "云南", "云南": "云南",
+  "西藏自治区": "西藏", "西藏": "西藏",
+  "陕西省": "陕西", "陕西": "陕西",
+  "甘肃省": "甘肃", "甘肃": "甘肃",
+  "青海省": "青海", "青海": "青海",
+  "宁夏回族自治区": "宁夏", "宁夏": "宁夏",
+  "新疆维吾尔自治区": "新疆", "新疆": "新疆",
+  "香港特别行政区": "香港", "香港": "香港",
+  "澳门特别行政区": "澳门", "澳门": "澳门",
+  "台湾省": "台湾", "台湾": "台湾"
+};
+
+const CITY_TO_PROVINCE: Record<string, { province: string; city: string }> = {
+  "广州": { province: "广东", city: "广州" }, "深圳": { province: "广东", city: "深圳" }, "佛山": { province: "广东", city: "佛山" }, "东莞": { province: "广东", city: "东莞" }, "珠海": { province: "广东", city: "珠海" }, "惠州": { province: "广东", city: "惠州" }, "中山": { province: "广东", city: "中山" }, "江门": { province: "广东", city: "江门" }, "湛江": { province: "广东", city: "湛江" }, "汕头": { province: "广东", city: "汕头" }, "茂名": { province: "广东", city: "茂名" }, "肇庆": { province: "广东", city: "肇庆" }, "梅州": { province: "广东", city: "梅州" }, "清远": { province: "广东", city: "清远" }, "阳江": { province: "广东", city: "阳江" }, "韶关": { province: "广东", city: "韶关" }, "潮州": { province: "广东", city: "潮州" }, "揭阳": { province: "广东", city: "揭阳" }, "云浮": { province: "广东", city: "云浮" }, "汕尾": { province: "广东", city: "汕尾" }, "河源": { province: "广东", city: "河源" }, "羊城": { province: "广东", city: "广州" }, "鹏城": { province: "广东", city: "深圳" },
+  "杭州": { province: "浙江", city: "杭州" }, "宁波": { province: "浙江", city: "宁波" }, "温州": { province: "浙江", city: "温州" }, "绍兴": { province: "浙江", city: "绍兴" }, "嘉兴": { province: "浙江", city: "嘉兴" }, "金华": { province: "浙江", city: "金华" }, "台州": { province: "浙江", city: "台州" }, "湖州": { province: "浙江", city: "湖州" }, "丽水": { province: "浙江", city: "丽水" }, "衢州": { province: "浙江", city: "衢州" }, "舟山": { province: "浙江", city: "舟山" }, "义乌": { province: "浙江", city: "金华" }, "之江": { province: "浙江", city: "杭州" },
+  "南京": { province: "江苏", city: "南京" }, "苏州": { province: "江苏", city: "苏州" }, "无锡": { province: "江苏", city: "无锡" }, "常州": { province: "江苏", city: "常州" }, "南通": { province: "江苏", city: "南通" }, "扬州": { province: "江苏", city: "扬州" }, "徐州": { province: "江苏", city: "徐州" }, "盐城": { province: "江苏", city: "盐城" }, "镇江": { province: "江苏", city: "镇江" }, "泰州": { province: "江苏", city: "泰州" }, "淮安": { province: "江苏", city: "淮安" }, "连云港": { province: "江苏", city: "连云港" }, "宿迁": { province: "江苏", city: "宿迁" }, "金陵": { province: "江苏", city: "南京" }, "姑苏": { province: "江苏", city: "苏州" },
+  "成都": { province: "四川", city: "成都" }, "绵阳": { province: "四川", city: "绵阳" }, "德阳": { province: "四川", city: "德阳" }, "宜宾": { province: "四川", city: "宜宾" }, "南充": { province: "四川", city: "南充" }, "泸州": { province: "四川", city: "泸州" }, "达州": { province: "四川", city: "达州" }, "乐山": { province: "四川", city: "乐山" }, "自贡": { province: "四川", city: "自贡" }, "攀枝花": { province: "四川", city: "攀枝花" }, "凉山": { province: "四川", city: "凉山" }, "广安": { province: "四川", city: "广安" }, "遂宁": { province: "四川", city: "遂宁" }, "内江": { province: "四川", city: "内江" }, "资阳": { province: "四川", city: "资阳" }, "眉山": { province: "四川", city: "眉山" },
+  "济南": { province: "山东", city: "济南" }, "青岛": { province: "山东", city: "青岛" }, "烟台": { province: "山东", city: "烟台" }, "潍坊": { province: "山东", city: "潍坊" }, "临沂": { province: "山东", city: "临沂" }, "济宁": { province: "山东", city: "济宁" }, "淄博": { province: "山东", city: "淄博" }, "菏泽": { province: "山东", city: "菏泽" }, "德州": { province: "山东", city: "德州" }, "泰安": { province: "山东", city: "泰安" }, "聊城": { province: "山东", city: "聊城" }, "威海": { province: "山东", city: "威海" }, "东营": { province: "山东", city: "东营" }, "日照": { province: "山东", city: "日照" }, "滨州": { province: "山东", city: "滨州" }, "枣庄": { province: "山东", city: "枣庄" }, "齐鲁": { province: "山东", city: "济南" },
+  "郑州": { province: "河南", city: "郑州" }, "洛阳": { province: "河南", city: "洛阳" }, "南阳": { province: "河南", city: "南阳" }, "许昌": { province: "河南", city: "许昌" }, "周口": { province: "河南", city: "周口" }, "新乡": { province: "河南", city: "新乡" }, "商丘": { province: "河南", city: "商丘" }, "信阳": { province: "河南", city: "信阳" }, "驻马店": { province: "河南", city: "驻马店" }, "平顶山": { province: "河南", city: "平顶山" }, "开封": { province: "河南", city: "开封" }, "安阳": { province: "河南", city: "安阳" }, "焦作": { province: "河南", city: "焦作" }, "濮阳": { province: "河南", city: "濮阳" },
+  "武汉": { province: "湖北", city: "武汉" }, "襄阳": { province: "湖北", city: "襄阳" }, "宜昌": { province: "湖北", city: "宜昌" }, "荆州": { province: "湖北", city: "荆州" }, "黄冈": { province: "湖北", city: "黄冈" }, "孝感": { province: "湖北", city: "孝感" }, "十堰": { province: "湖北", city: "十堰" }, "荆门": { province: "湖北", city: "荆门" }, "黄石": { province: "湖北", city: "黄石" }, "咸宁": { province: "湖北", city: "咸宁" }, "恩施": { province: "湖北", city: "恩施" }, "随州": { province: "湖北", city: "随州" }, "楚天": { province: "湖北", city: "武汉" },
+  "长沙": { province: "湖南", city: "长沙" }, "岳阳": { province: "湖南", city: "岳阳" }, "常德": { province: "湖南", city: "常德" }, "衡阳": { province: "湖南", city: "衡阳" }, "株洲": { province: "湖南", city: "株洲" }, "郴州": { province: "湖南", city: "郴州" }, "湘潭": { province: "湖南", city: "湘潭" }, "永州": { province: "湖南", city: "永州" }, "邵阳": { province: "湖南", city: "邵阳" }, "益阳": { province: "湖南", city: "益阳" }, "娄底": { province: "湖南", city: "娄底" }, "怀化": { province: "湖南", city: "怀化" }, "湘西": { province: "湖南", city: "湘西" }, "张家界": { province: "湖南", city: "张家界" },
+  "福州": { province: "福建", city: "福州" }, "厦门": { province: "福建", city: "厦门" }, "泉州": { province: "福建", city: "泉州" }, "漳州": { province: "福建", city: "漳州" }, "莆田": { province: "福建", city: "莆田" }, "龙岩": { province: "福建", city: "龙岩" }, "三明": { province: "福建", city: "三明" }, "南平": { province: "福建", city: "南平" }, "宁德": { province: "福建", city: "宁德" }, "海峡": { province: "福建", city: "福州" },
+  "合肥": { province: "安徽", city: "合肥" }, "芜湖": { province: "安徽", city: "芜湖" }, "滁州": { province: "安徽", city: "滁州" }, "阜阳": { province: "安徽", city: "阜阳" }, "安庆": { province: "安徽", city: "安庆" }, "马鞍山": { province: "安徽", city: "马鞍山" }, "蚌埠": { province: "安徽", city: "蚌埠" }, "宿州": { province: "安徽", city: "宿州" }, "六安": { province: "安徽", city: "六安" }, "亳州": { province: "安徽", city: "亳州" }, "宣城": { province: "安徽", city: "宣城" }, "黄山": { province: "安徽", city: "黄山" },
+  "西安": { province: "陕西", city: "西安" }, "榆林": { province: "陕西", city: "榆林" }, "咸阳": { province: "陕西", city: "咸阳" }, "宝鸡": { province: "陕西", city: "宝鸡" }, "渭南": { province: "陕西", city: "渭南" }, "汉中": { province: "陕西", city: "汉中" }, "延安": { province: "陕西", city: "延安" }, "安康": { province: "陕西", city: "安康" }, "三秦": { province: "陕西", city: "西安" },
+  "石家庄": { province: "河北", city: "石家庄" }, "唐山": { province: "河北", city: "唐山" }, "保定": { province: "河北", city: "保定" }, "邯郸": { province: "河北", city: "邯郸" }, "沧州": { province: "河北", city: "沧州" }, "廊坊": { province: "河北", city: "廊坊" }, "邢台": { province: "河北", city: "邢台" }, "张家口": { province: "河北", city: "张家口" }, "承德": { province: "河北", city: "承德" }, "秦皇岛": { province: "河北", city: "秦皇岛" }, "衡水": { province: "河北", city: "衡水" }, "燕赵": { province: "河北", city: "石家庄" },
+  "沈阳": { province: "辽宁", city: "沈阳" }, "大连": { province: "辽宁", city: "大连" }, "鞍山": { province: "辽宁", city: "鞍山" }, "锦州": { province: "辽宁", city: "锦州" }, "营口": { province: "辽宁", city: "营口" }, "丹东": { province: "辽宁", city: "丹东" }, "盘锦": { province: "辽宁", city: "盘锦" }, "葫芦岛": { province: "辽宁", city: "葫芦岛" },
+  "哈尔滨": { province: "黑龙江", city: "哈尔滨" }, "大庆": { province: "黑龙江", city: "大庆" }, "齐齐哈尔": { province: "黑龙江", city: "齐齐哈尔" }, "牡丹江": { province: "黑龙江", city: "牡丹江" }, "佳木斯": { province: "黑龙江", city: "佳木斯" }, "绥化": { province: "黑龙江", city: "绥化" },
+  "长春": { province: "吉林", city: "长春" }, "吉林市": { province: "吉林", city: "吉林" }, "延边": { province: "吉林", city: "延边" }, "四平": { province: "吉林", city: "四平" }, "通化": { province: "吉林", city: "通化" },
+  "南昌": { province: "江西", city: "南昌" }, "赣州": { province: "江西", city: "赣州" }, "九江": { province: "江西", city: "九江" }, "宜春": { province: "江西", city: "宜春" }, "上饶": { province: "江西", city: "上饶" }, "吉安": { province: "江西", city: "吉安" }, "景德镇": { province: "江西", city: "景德镇" },
+  "南宁": { province: "广西", city: "南宁" }, "柳州": { province: "广西", city: "柳州" }, "桂林": { province: "广西", city: "桂林" }, "玉林": { province: "广西", city: "玉林" }, "北海": { province: "广西", city: "北海" }, "八桂": { province: "广西", city: "南宁" },
+  "昆明": { province: "云南", city: "昆明" }, "曲靖": { province: "云南", city: "曲靖" }, "大理": { province: "云南", city: "大理" }, "玉溪": { province: "云南", city: "玉溪" }, "丽江": { province: "云南", city: "丽江" }, "西双版纳": { province: "云南", city: "西双版纳" },
+  "贵阳": { province: "贵州", city: "贵阳" }, "遵义": { province: "贵州", city: "遵义" }, "毕节": { province: "贵州", city: "毕节" }, "六盘水": { province: "贵州", city: "六盘水" },
+  "太原": { province: "山西", city: "太原" }, "大同": { province: "山西", city: "大同" }, "长治": { province: "山西", city: "长治" }, "运城": { province: "山西", city: "运城" }, "临汾": { province: "山西", city: "临汾" }, "晋中": { province: "山西", city: "晋中" },
+  "呼和浩特": { province: "内蒙古", city: "呼和浩特" }, "包头": { province: "内蒙古", city: "包头" }, "鄂尔多斯": { province: "内蒙古", city: "鄂尔多斯" }, "赤峰": { province: "内蒙古", city: "赤峰" }, "通辽": { province: "内蒙古", city: "通辽" },
+  "乌鲁木齐": { province: "新疆", city: "乌鲁木齐" }, "伊犁": { province: "新疆", city: "伊犁" }, "喀什": { province: "新疆", city: "喀什" }, "克拉玛依": { province: "新疆", city: "克拉玛依" },
+  "兰州": { province: "甘肃", city: "兰州" }, "天水": { province: "甘肃", city: "天水" }, "酒泉": { province: "甘肃", city: "酒泉" }, "张掖": { province: "甘肃", city: "张掖" }, "嘉峪关": { province: "甘肃", city: "嘉峪关" },
+  "海口": { province: "海南", city: "海口" }, "三亚": { province: "海南", city: "三亚" },
+  "银川": { province: "宁夏", city: "银川" }, "石嘴山": { province: "宁夏", city: "石嘴山" },
+  "西宁": { province: "青海", city: "西宁" }, "海东": { province: "青海", city: "海东" },
+  "拉萨": { province: "西藏", city: "拉萨" }
+};
+
+function standardizeProvince(input?: string): string {
+  if (!input) return "";
+  const clean = input.trim();
+  if (PROVINCE_MAP[clean]) return PROVINCE_MAP[clean];
+  for (const [key, val] of Object.entries(PROVINCE_MAP)) {
+    if (clean.startsWith(key) || clean.includes(key)) {
+      return val;
+    }
+  }
+  return "";
+}
+
+function detectProvinceAndCity(ch: Channel): { province: string; city: string } | null {
+  const cleanName = cleanChannelName(ch.name);
+  // Skip national stations from central broadcaster
+  if (/^(cctv|cgtn|cnr|中国之声|经济之声|音乐之声|经典音乐广播|中华之声|华夏之声|神州之声|民族之声|文艺之声|老年之声|中国国际广播|央视)/i.test(cleanName)) {
+    return null;
+  }
+
+  // 1. Official QTFM match if qingtingId exists
+  if (ch.qingtingId) {
+    const qtfmMatch = qtfmStations.find(s => s.id === ch.qingtingId);
+    if (qtfmMatch && qtfmMatch.province) {
+      const p = standardizeProvince(qtfmMatch.province);
+      if (p) return { province: p, city: qtfmMatch.city || "" };
+    }
+  }
+
+  // 2. Official QTFM match by clean channel name
+  const qtfmByName = qtfmStations.find(s => cleanChannelName(s.name) === cleanName);
+  if (qtfmByName && qtfmByName.province) {
+    const p = standardizeProvince(qtfmByName.province);
+    if (p) return { province: p, city: qtfmByName.city || "" };
+  }
+
+  // 3. Channel province field already specified
+  if (ch.province && ch.province.trim()) {
+    const p = standardizeProvince(ch.province);
+    if (p) return { province: p, city: ch.city || "" };
+  }
+
+  // 4. Channel city field
+  if (ch.city && ch.city.trim()) {
+    const cleanCity = ch.city.replace(/市$/, "").trim();
+    if (CITY_TO_PROVINCE[cleanCity]) {
+      return { province: CITY_TO_PROVINCE[cleanCity].province, city: cleanCity };
+    }
+  }
+
+  // 5. Name and alias analysis
+  const fullText = [ch.name, ...(ch.alias || []), ch.description || ""].join(" ");
+
+  // Match cities first (longer first)
+  const sortedCities = Object.keys(CITY_TO_PROVINCE).sort((a, b) => b.length - a.length);
+  for (const cName of sortedCities) {
+    if (fullText.includes(cName)) {
+      const match = CITY_TO_PROVINCE[cName];
+      return { province: match.province, city: match.city };
+    }
+  }
+
+  // Match provinces (longer first)
+  const sortedProvinces = Object.keys(PROVINCE_MAP).sort((a, b) => b.length - a.length);
+  for (const pName of sortedProvinces) {
+    if (fullText.includes(pName)) {
+      return { province: PROVINCE_MAP[pName], city: "" };
+    }
+  }
+
+  return null;
+}
 
 function isInvalidLogo(l?: string): boolean {
   if (!l || l.trim() === "") return true;
@@ -2690,21 +2838,45 @@ async function startServer() {
 
   app.post("/api/tags", (req, res) => {
     const { name } = req.body;
-    if (!name) {
+    if (!name || typeof name !== "string" || !name.trim()) {
       return res.status(400).json({ error: "标签名称不能为空" });
     }
-    const newTag = { id: "g_" + Math.random().toString(36).substring(2, 10), name };
+    const cleanName = name.trim();
+    const existing = tags.find((t) => t.name.toLowerCase() === cleanName.toLowerCase());
+    if (existing) {
+      return res.status(200).json(existing);
+    }
+    const isProv = ALL_STANDARD_PROVINCES.includes(cleanName);
+    const newTag = {
+      id: (isProv ? "g_prov_" : "g_") + Math.random().toString(36).substring(2, 10),
+      name: cleanName
+    };
     tags.push(newTag);
+    try {
+      db.prepare("INSERT OR IGNORE INTO tags (id, name, type) VALUES (?, ?, ?)").run(newTag.id, newTag.name, isProv ? "province" : "custom");
+    } catch (_) {}
     saveData();
     res.status(201).json(newTag);
   });
   app.post("/api/groups", (req, res) => {
     const { name } = req.body;
-    if (!name) {
+    if (!name || typeof name !== "string" || !name.trim()) {
       return res.status(400).json({ error: "分组名称不能为空" });
     }
-    const newTag = { id: "g_" + Math.random().toString(36).substring(2, 10), name };
+    const cleanName = name.trim();
+    const existing = tags.find((t) => t.name.toLowerCase() === cleanName.toLowerCase());
+    if (existing) {
+      return res.status(200).json(existing);
+    }
+    const isProv = ALL_STANDARD_PROVINCES.includes(cleanName);
+    const newTag = {
+      id: (isProv ? "g_prov_" : "g_") + Math.random().toString(36).substring(2, 10),
+      name: cleanName
+    };
     tags.push(newTag);
+    try {
+      db.prepare("INSERT OR IGNORE INTO tags (id, name, type) VALUES (?, ?, ?)").run(newTag.id, newTag.name, isProv ? "province" : "custom");
+    } catch (_) {}
     saveData();
     res.status(201).json(newTag);
   });
@@ -2773,6 +2945,153 @@ async function startServer() {
     });
     saveData();
     res.json({ success: true });
+  });
+
+  // Batch analyze and auto-tag channels with province name tags
+  app.post("/api/channels/batch-province-tag", (req, res) => {
+    try {
+      const { channelIds, overwrite = false } = req.body;
+      const targetList = Array.isArray(channelIds) && channelIds.length > 0
+        ? channels.filter(c => channelIds.includes(c.id))
+        : channels;
+
+      let taggedCount = 0;
+      const createdTags: string[] = [];
+      const updatedDetails: { id: string; name: string; province: string; city: string; tag: string }[] = [];
+
+      targetList.forEach(ch => {
+        // Check if channel already has a province tag
+        const existingProvinceTag = tags.find(t => 
+          ALL_STANDARD_PROVINCES.includes(t.name) && 
+          (ch.tagIds || ch.groupIds || []).includes(t.id)
+        );
+
+        if (existingProvinceTag && !overwrite) {
+          return;
+        }
+
+        const detected = detectProvinceAndCity(ch);
+        if (detected && detected.province) {
+          // Find or create the province tag
+          let pTag = tags.find(t => t.name === detected.province);
+          if (!pTag) {
+            pTag = {
+              id: "g_prov_" + Math.random().toString(36).substring(2, 10),
+              name: detected.province
+            };
+            tags.push(pTag);
+            try {
+              db.prepare("INSERT OR IGNORE INTO tags (id, name, type) VALUES (?, ?, ?)").run(pTag.id, pTag.name, "province");
+            } catch (_) {}
+            if (!createdTags.includes(detected.province)) {
+              createdTags.push(detected.province);
+            }
+          }
+
+          // Attach to channel tagIds and groupIds
+          if (!ch.tagIds) ch.tagIds = [];
+          if (!ch.groupIds) ch.groupIds = [];
+          if (!ch.tagIds.includes(pTag.id)) ch.tagIds.push(pTag.id);
+          if (!ch.groupIds.includes(pTag.id)) ch.groupIds.push(pTag.id);
+
+          // Supplement channel province and city properties
+          if (!ch.province || overwrite) {
+            ch.province = detected.province;
+          }
+          if ((!ch.city || overwrite) && detected.city) {
+            ch.city = detected.city;
+          }
+
+          taggedCount++;
+          updatedDetails.push({
+            id: ch.id,
+            name: ch.name,
+            province: detected.province,
+            city: detected.city,
+            tag: pTag.name
+          });
+        }
+      });
+
+      if (taggedCount > 0) {
+        saveData();
+      }
+
+      res.json({
+        success: true,
+        total: targetList.length,
+        taggedCount,
+        createdTags,
+        message: `省市台智能打标完成：共分析 ${targetList.length} 个电台，成功为 ${taggedCount} 个电台添加省名标签${createdTags.length > 0 ? `（自动创建新标签: ${createdTags.join("、")}）` : ""}。`,
+        details: updatedDetails.slice(0, 50)
+      });
+    } catch (err: any) {
+      console.error("[Batch Province Tag Error]", err);
+      res.status(500).json({ error: err.message || "批量分析省市电台失败" });
+    }
+  });
+
+  // Initialize all standard 34 Chinese province tags in database
+  app.post("/api/tags/init-provinces", (req, res) => {
+    try {
+      let created = 0;
+      const createdNames: string[] = [];
+      ALL_STANDARD_PROVINCES.forEach(pName => {
+        let exists = tags.find(t => t.name === pName);
+        if (!exists) {
+          const newTag = {
+            id: "g_prov_" + Math.random().toString(36).substring(2, 10),
+            name: pName
+          };
+          tags.push(newTag);
+          try {
+            db.prepare("INSERT OR IGNORE INTO tags (id, name, type) VALUES (?, ?, ?)").run(newTag.id, newTag.name, "province");
+          } catch (_) {}
+          created++;
+          createdNames.push(pName);
+        }
+      });
+      if (created > 0) {
+        saveData();
+      }
+      res.json({
+        success: true,
+        created,
+        createdNames,
+        totalProvinceTags: ALL_STANDARD_PROVINCES.length,
+        message: `全国 34 个省级行政区标签库初始化完毕，本次新增创建 ${created} 个省名标签。`
+      });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message || "初始化省名标签库失败" });
+    }
+  });
+
+  // Cleanup unused tags (tags with 0 channels, excluding protected ones)
+  app.post("/api/tags/cleanup-unused", (req, res) => {
+    try {
+      const protectedTagNames = ["其它", "其它频道", "地方频道", "网络广播", "总台", "央视频道", "卫视频道"];
+      const unusedTags = tags.filter(t => {
+        if (t.id === "g_other" || protectedTagNames.includes(t.name)) return false;
+        const count = channels.filter(c => (c.tagIds || c.groupIds || []).includes(t.id)).length;
+        return count === 0;
+      });
+
+      const unusedIds = unusedTags.map(t => t.id);
+      tags = tags.filter(t => !unusedIds.includes(t.id));
+
+      if (unusedIds.length > 0) {
+        saveData();
+      }
+
+      res.json({
+        success: true,
+        removedCount: unusedIds.length,
+        removedTags: unusedTags.map(t => t.name),
+        message: `成功清理 ${unusedIds.length} 个无频道关联的闲置标签。`
+      });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message || "清理空标签失败" });
+    }
   });
 
   app.get("/api/channels", async (req, res) => {
