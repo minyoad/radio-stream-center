@@ -262,6 +262,7 @@ export default function App() {
   const [isSyncingAllEpg, setIsSyncingAllEpg] = useState(false);
   const [isSyncingQtfmEpg, setIsSyncingQtfmEpg] = useState(false);
   const [isImportingQtfm, setIsImportingQtfm] = useState(false);
+  const [isImportingRadioCn, setIsImportingRadioCn] = useState(false);
   const [testingStatus, setTestingStatus] = useState<TestStatus>({ status: "idle", total: 0, checked: 0, results: [] });
   const [activeTab, setActiveTab] = useState<string>("dashboard"); // dashboard, channels, sync, export, epg
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState<boolean>(false);
@@ -396,7 +397,8 @@ export default function App() {
     frequency: "",
     gain: 1,
     disabled: false,
-    qingtingId: ""
+    qingtingId: "",
+    radioCnId: ""
   });
 
   const [isSourceModalOpen, setIsSourceModalOpen] = useState(false);
@@ -1304,7 +1306,8 @@ export default function App() {
         frequency: channelForm.frequency,
         gain: channelForm.gain,
         disabled: Boolean(channelForm.disabled),
-        qingtingId: channelForm.qingtingId
+        qingtingId: channelForm.qingtingId,
+        radioCnId: channelForm.radioCnId
       };
 
       const res = await fetch(endpoint, {
@@ -1376,6 +1379,67 @@ export default function App() {
     };
     reader.readAsText(file);
     e.target.value = "";
+  };
+
+  const handleRadioCnCsvImport = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (!file.name.toLowerCase().endsWith(".csv")) {
+      showFeedback("error", "请上传 CSV 格式的 Radio CN 电台列表文件");
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = async (e) => {
+      const content = e.target?.result as string;
+      triggerConfirm(
+        `导入 Radio CN 电台列表`,
+        `确定要从 "${file.name}" 中导入 Radio CN 电台数据吗？系统将通过正则表达式智能提取 CSV 中的全部播放源/直播流，自动解析电台名称、所属省份、分类、频率，并完成智能打标与高可用源合并。`,
+        async () => {
+          showFeedback("info", "正在通过正则解析并导入 Radio CN 数据与播放源...");
+          try {
+            const res = await fetch("/api/import/csv-json", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                content,
+                format: "csv",
+                filename: file.name
+              })
+            });
+            const result = await res.json();
+            if (result.error) {
+              showFeedback("error", "导入失败: " + result.error);
+            } else {
+              showFeedback("success", result.message || `导入成功！新增 ${result.channels} 个频道，${result.sources} 个播放源。`);
+              fetchData();
+            }
+          } catch (err: any) {
+            showFeedback("error", "导入发生网络异常");
+          }
+        }
+      );
+    };
+    reader.readAsText(file);
+    e.target.value = "";
+  };
+
+  const handleImportRadioCn = async () => {
+    setIsImportingRadioCn(true);
+    try {
+      const res = await fetch("/api/channels/import-radio-cn", { method: "POST" });
+      const data = await res.json();
+      if (res.ok) {
+        showFeedback("success", data.message || "Radio CN 电台数据导入成功");
+        fetchData();
+      } else {
+        showFeedback("error", data.error || "导入 Radio CN 数据失败");
+      }
+    } catch (err) {
+      showFeedback("error", "网络请求异常");
+    } finally {
+      setIsImportingRadioCn(false);
+    }
   };
 
   
@@ -2077,7 +2141,8 @@ export default function App() {
       frequency: "",
       gain: 1,
       disabled: false,
-      qingtingId: ""
+      qingtingId: "",
+      radioCnId: ""
     });
     setIsChannelModalOpen(true);
   };
@@ -2102,7 +2167,8 @@ export default function App() {
       frequency: ch.frequency || "",
       gain: ch.gain || 1,
       disabled: Boolean(ch.disabled),
-      qingtingId: ch.qingtingId || ""
+      qingtingId: ch.qingtingId || "",
+      radioCnId: ch.radioCnId || ""
     });
     setIsChannelModalOpen(true);
   };
@@ -4019,6 +4085,11 @@ export default function App() {
                                         QTFM: {ch.qingtingId}
                                       </span>
                                     )}
+                                    {ch.radioCnId && (
+                                      <span className="font-mono text-[9px] text-indigo-700 bg-indigo-50 px-1 py-0.5 rounded border border-indigo-100 font-bold" title="Radio CN (云听) 电台ID">
+                                        RadioCN: {ch.radioCnId}
+                                      </span>
+                                    )}
                                   </div>
                                 </div>
                               </div>
@@ -5231,13 +5302,18 @@ export default function App() {
                       >
                         {isImportingText ? "正在解析文件并写入缓存..." : "开始批量一键导入文本播放源"}
                       </button>
-                      <div className="flex flex-col sm:flex-row gap-3">
-                        <label className="flex-1 py-3 bg-slate-600 hover:bg-slate-700 text-white font-bold text-xs rounded-xl shadow transition duration-150 cursor-pointer text-center flex items-center justify-center">
+                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                        <label className="py-3 bg-slate-600 hover:bg-slate-700 text-white font-bold text-xs rounded-xl shadow transition duration-150 cursor-pointer text-center flex items-center justify-center">
                           <Upload className="w-4 h-4 mr-2" />
-                          导入大规模数据 (CSV/JSON)
+                          导入数据 (CSV/JSON)
                           <input type="file" className="hidden" accept=".json,.csv" onChange={handleBulkDataImport} />
                         </label>
-                        <label className="flex-1 py-3 bg-slate-500 hover:bg-slate-600 text-white font-bold text-xs rounded-xl shadow transition duration-150 cursor-pointer text-center flex items-center justify-center">
+                        <label className="py-3 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs rounded-xl shadow transition duration-150 cursor-pointer text-center flex items-center justify-center" title="支持导入 Radio CN 电台列表 CSV 文件，自动正则提取播放源">
+                          <Radio className="w-4 h-4 mr-2" />
+                          导入 Radio CN 电台列表
+                          <input type="file" className="hidden" accept=".csv" onChange={handleRadioCnCsvImport} />
+                        </label>
+                        <label className="py-3 bg-slate-500 hover:bg-slate-600 text-white font-bold text-xs rounded-xl shadow transition duration-150 cursor-pointer text-center flex items-center justify-center">
                           <Upload className="w-4 h-4 mr-2" />
                           导入 TVAtlas 数据
                           <input type="file" className="hidden" accept=".json" onChange={handleTVAtlasImport} />
@@ -6043,6 +6119,18 @@ export default function App() {
                         <span>导入中...</span>
                       ) : (
                         <span>导入 蜻蜓FM 基础电台</span>
+                      )}
+                    </button>
+
+                    <button
+                      onClick={handleImportRadioCn}
+                      disabled={isImportingRadioCn}
+                      className="flex items-center justify-center gap-1.5 px-3 py-2 bg-indigo-900/80 hover:bg-indigo-800 text-indigo-100 border border-indigo-700 rounded-xl text-xs font-bold transition cursor-pointer"
+                    >
+                      {isImportingRadioCn ? (
+                        <span>导入中...</span>
+                      ) : (
+                        <span>导入 Radio CN (云听) 电台列表</span>
                       )}
                     </button>
 
@@ -7340,6 +7428,29 @@ export default function App() {
                     </p>
                   )}
                 </div>
+
+                <div className="space-y-1.5 font-sans">
+                  <div className="flex justify-between items-center text-xs font-bold text-slate-700">
+                    <span>Radio CN 电台 ID (radioCnId)</span>
+                    <span className="text-[9px] bg-indigo-50 text-indigo-700 px-1.5 py-0.5 rounded font-mono font-bold border border-indigo-200/60 shrink-0">云听库</span>
+                  </div>
+                  <input 
+                    type="text"
+                    value={channelForm.radioCnId || ""}
+                    onChange={(e)=>setChannelForm({...channelForm, radioCnId: e.target.value})}
+                    placeholder="如: rcn_1001"
+                    className="w-full text-xs p-2.5 border border-slate-200 rounded-xl focus:border-indigo-500 bg-slate-50 focus:outline-none font-mono placeholder-slate-400 text-slate-800"
+                  />
+                  {channelForm.radioCnId ? (
+                    <div className="flex items-center justify-between text-[10px] text-indigo-700 bg-indigo-50/80 p-2 rounded-xl border border-indigo-200/60 font-mono">
+                      <span className="truncate">✓ 已绑定 Radio CN ID: <strong className="font-bold">{channelForm.radioCnId}</strong></span>
+                    </div>
+                  ) : (
+                    <p className="text-[10px] text-slate-400 font-medium leading-relaxed">
+                      用于关联 Radio CN / 云听 广播频段库及官方直播源。
+                    </p>
+                  )}
+                </div>
               </div>
 
               {/* Logo Section with Preset Library, Live Preview, and Candidate Gallery */}
@@ -8428,6 +8539,11 @@ export default function App() {
                               {ch.qingtingId && (
                                 <span className="bg-indigo-50 text-indigo-700 px-1.5 py-0.5 rounded font-mono font-bold">
                                   蜻蜓ID: {ch.qingtingId}
+                                </span>
+                              )}
+                              {ch.radioCnId && (
+                                <span className="bg-indigo-50 text-indigo-700 px-1.5 py-0.5 rounded font-mono font-bold">
+                                  云听ID: {ch.radioCnId}
                                 </span>
                               )}
                               {(ch.province || ch.city) && (

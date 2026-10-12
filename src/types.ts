@@ -31,6 +31,7 @@ export interface Channel {
   gain?: number;
   disabled?: boolean;
   qingtingId?: string;
+  radioCnId?: string;
   sources: LiveSource[];
 }
 

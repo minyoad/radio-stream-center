@@ -1,0 +1,77 @@
+电台ID,电台名称,所属省份,所属城市,所属分类,频率,台标,播放源,直播流,电台描述
+rcn_1001,CNR中国之声,全国,,新闻资讯,FM106.1/AM540,http://pic.qtfm.cn/sso/48/1641437453117_JxQnTn1vv.jpeg,http://ngcdn001.cnr.cn/live/zgzs/index.m3u8,http://ngcdn001.cnr.cn/live/zgzs/index.m3u8,中央人民广播电台第一套节目，中国最具权威的新闻广播
+rcn_1002,CNR经济之声,全国,,财经商业,FM96.6/AM720,http://pic.qtfm.cn/sso/48/1641438475219_mv9SoJP78.jpeg,http://ngcdn002.cnr.cn/live/jjzs/index.m3u8,http://ngcdn002.cnr.cn/live/jjzs/index.m3u8,中央人民广播电台经济之声，传播经济资讯，引领财富生活
+rcn_1003,CNR音乐之声,全国,,音乐广播,FM90.0,http://pic.qtfm.cn/sso/48/1641437907698_k0NNOUP54.jpeg,http://ngcdn003.cnr.cn/live/yyzs/index.m3u8,http://ngcdn003.cnr.cn/live/yyzs/index.m3u8,中央人民广播电台音乐之声 Music Radio，华语流行音乐第一台
+rcn_1004,CNR经典音乐广播,全国,,音乐广播,FM87.5,http://pic.qtfm.cn/sso/48/1641437907698_k0NNOUP54.jpeg,http://ngcdn004.cnr.cn/live/jd875/index.m3u8,http://ngcdn004.cnr.cn/live/jd875/index.m3u8,中央人民广播电台经典音乐广播，经典旋律，岁月留声
+rcn_1005,CNR中华之声,全国,,综合广播,AM549,http://pic.qtfm.cn/2015/0514/2015051417385422.jpg,http://ngcdn005.cnr.cn/live/zhzs/index.m3u8,http://ngcdn005.cnr.cn/live/zhzs/index.m3u8,中央人民广播电台对台湾广播频率，两岸同胞的情感纽带
+rcn_1006,CNR神州之声,全国,,方言曲艺,AM684,http://pic.qtfm.cn/2015/0514/2015051417385422.jpg,http://ngcdn006.cnr.cn/live/szzs/index.m3u8,http://ngcdn006.cnr.cn/live/szzs/index.m3u8,中央人民广播电台闽南话、客家话方言广播频率
+rcn_1007,CNR大湾区之声,广东,广州市,新闻资讯,FM101.2,http://pic.qtfm.cn/sso/198/1606449636209_K8-0Zavn2.png,http://ngcdn007.cnr.cn/live/dwqzs/index.m3u8,http://ngcdn007.cnr.cn/live/dwqzs/index.m3u8,中央广播电视总台粤港澳大湾区之声，服务粤港澳大湾区建设
+rcn_1008,CNR香港之声,香港,,综合资讯,FM675,http://pic.qtfm.cn/sso/198/1606449636209_K8-0Zavn2.png,http://ngcdn008.cnr.cn/live/xgzs/index.m3u8,http://ngcdn008.cnr.cn/live/xgzs/index.m3u8,中央人民广播电台对香港特别行政区广播
+rcn_1009,CNR华夏之声,广东,深圳市,综合广播,FM87.8,http://pic.qtfm.cn/sso/198/1606449636209_K8-0Zavn2.png,http://ngcdn009.cnr.cn/live/hxzs/index.m3u8,http://ngcdn009.cnr.cn/live/hxzs/index.m3u8,中央广播电视总台面向港澳珠江三角洲广播频率
+rcn_1010,CNR民族之声,全国,,民族语言,AM1143,http://pic.qtfm.cn/2015/0514/2015051417385422.jpg,http://ngcdn010.cnr.cn/live/mzzs/index.m3u8,http://ngcdn010.cnr.cn/live/mzzs/index.m3u8,中央人民广播电台少数民族语言广播频率
+rcn_1011,CNR文艺之声,全国,,文化艺术,FM106.6,http://pic.qtfm.cn/sso/198/1631520087008_cMpTFBNNx.jpeg,http://ngcdn011.cnr.cn/live/wyzs/index.m3u8,http://ngcdn011.cnr.cn/live/wyzs/index.m3u8,中央人民广播电台文艺之声，倾听文艺脉搏，品味文化生活
+rcn_1012,CNR老年之声,全国,,生活健康,AM1053,http://pic.qtfm.cn/2021/0519/20210519030711.jpeg,http://ngcdn012.cnr.cn/live/lnzs/index.m3u8,http://ngcdn012.cnr.cn/live/lnzs/index.m3u8,中央人民广播电台老年之声，关爱银龄生活，传递健康快乐
+rcn_1013,CNR中国交通广播,全国,,交通出行,FM99.6,http://pic.qtfm.cn/2019/0227/20190227023249.png,http://ngcdn015.cnr.cn/live/zgjtgb/index.m3u8,http://ngcdn015.cnr.cn/live/zgjtgb/index.m3u8,国家应急广播，全国交通出行出行服务网络
+rcn_1014,CNR中国乡村之声,全国,,三农服务,FM107.9,http://pic.qtfm.cn/2015/0313/20150313190104234.jpg,http://ngcdn016.cnr.cn/live/zgxczs/index.m3u8,http://ngcdn016.cnr.cn/live/zgxczs/index.m3u8,中央广播电视总台对农村广播，传递乡村振兴时代强音
+rcn_1015,CRI环球资讯广播,全国,,国际资讯,FM90.5,http://pic.qtfm.cn/2015/0202/20150202170847551.jpg,http://sk.live.cri.cn/905.m3u8,http://sk.live.cri.cn/905.m3u8,中国国际广播电台环球资讯广播，第一资讯，天下风云
+rcn_1016,CRI轻松调频,全国,,英语教学,FM91.5,http://pic.qtfm.cn/2014/0909/20140909125130474.jpg,http://sk.live.cri.cn/915.m3u8,http://sk.live.cri.cn/915.m3u8,中国国际广播电台 Easy FM 轻松调频，双语流行生活广播
+rcn_1017,CRI劲曲调频,全国,,欧美流行,FM88.7,http://pic.qtfm.cn/2014/0909/20140909123511693.jpg,http://sk.live.cri.cn/887.m3u8,http://sk.live.cri.cn/887.m3u8,中国国际广播电台 Hit FM 国际流行音乐电台
+rcn_2001,北京新闻广播,北京,北京市,新闻资讯,FM94.5/AM828,http://pic.qtfm.cn/2015/0514/2015051417385422.jpg,http://ngcdn001.cnr.cn/live/zgzs/index.m3u8,http://ngcdn001.cnr.cn/live/zgzs/index.m3u8,北京广播电视台新闻广播，立足首都，权威资讯
+rcn_2002,北京交通广播,北京,北京市,交通出行,FM103.9,http://pic.qtfm.cn/2019/0227/20190227023249.png,http://ngcdn015.cnr.cn/live/zgjtgb/index.m3u8,http://ngcdn015.cnr.cn/live/zgjtgb/index.m3u8,北京交通广播，一路相随，畅通出行
+rcn_2003,北京音乐广播,北京,北京市,音乐广播,FM97.4,http://pic.qtfm.cn/2017/0424/20170424025444.jpeg,http://ngcdn003.cnr.cn/live/yyzs/index.m3u8,http://ngcdn003.cnr.cn/live/yyzs/index.m3u8,北京音乐广播，流行潮流与高雅艺术的交响
+rcn_2004,北京文艺广播,北京,北京市,文化艺术,FM87.6,http://pic.qtfm.cn/sso/198/1631520087008_cMpTFBNNx.jpeg,http://ngcdn011.cnr.cn/live/wyzs/index.m3u8,http://ngcdn011.cnr.cn/live/wyzs/index.m3u8,北京文艺广播，传统曲艺，经典评书与舞台艺术
+rcn_2005,天津新闻广播,天津,天津市,新闻资讯,FM97.2/AM909,http://pic.qtfm.cn/2015/0202/20150202170847551.jpg,http://ngcdn001.cnr.cn/live/zgzs/index.m3u8,http://ngcdn001.cnr.cn/live/zgzs/index.m3u8,天津海河传媒中心新闻广播，津门第一声
+rcn_2006,天津交通广播,天津,天津市,交通出行,FM106.8,http://pic.qtfm.cn/2019/0227/20190227023249.png,http://ngcdn015.cnr.cn/live/zgjtgb/index.m3u8,http://ngcdn015.cnr.cn/live/zgjtgb/index.m3u8,天津交通广播，服务天津市民出行
+rcn_2007,河北新闻广播,河北,石家庄市,新闻资讯,FM104.3,http://pic.qtfm.cn/2015/0202/20150202170847551.jpg,http://ngcdn001.cnr.cn/live/zgzs/index.m3u8,http://ngcdn001.cnr.cn/live/zgzs/index.m3u8,河北广播电视台新闻综合频率
+rcn_2008,河北交通广播,河北,石家庄市,交通出行,FM99.2,http://pic.qtfm.cn/2019/0227/20190227023249.png,http://ngcdn015.cnr.cn/live/zgjtgb/index.m3u8,http://ngcdn015.cnr.cn/live/zgjtgb/index.m3u8,河北交通广播，燕赵大地出行良伴
+rcn_2009,山西综合广播,山西,太原市,新闻资讯,FM90.4/AM1269,http://pic.qtfm.cn/2015/0202/20150202170847551.jpg,http://ngcdn001.cnr.cn/live/zgzs/index.m3u8,http://ngcdn001.cnr.cn/live/zgzs/index.m3u8,山西广播电视台综合广播
+rcn_2010,山西交通广播,山西,太原市,交通出行,FM88.0,http://pic.qtfm.cn/2019/0227/20190227023249.png,http://ngcdn015.cnr.cn/live/zgjtgb/index.m3u8,http://ngcdn015.cnr.cn/live/zgjtgb/index.m3u8,山西交通广播，畅行三晋
+rcn_2011,内蒙古新闻广播,内蒙古,呼和浩特市,新闻资讯,FM95.0,http://pic.qtfm.cn/2015/0202/20150202170847551.jpg,http://ngcdn001.cnr.cn/live/zgzs/index.m3u8,http://ngcdn001.cnr.cn/live/zgzs/index.m3u8,内蒙古广播电视台新闻综合广播
+rcn_2012,辽宁综合广播,辽宁,沈阳市,新闻资讯,FM102.9/AM1089,http://pic.qtfm.cn/2015/0202/20150202170847551.jpg,http://ngcdn001.cnr.cn/live/zgzs/index.m3u8,http://ngcdn001.cnr.cn/live/zgzs/index.m3u8,辽宁广播电视台新闻综合广播
+rcn_2013,辽宁交通广播,辽宁,沈阳市,交通出行,FM97.5,http://pic.qtfm.cn/2019/0227/20190227023249.png,http://ngcdn015.cnr.cn/live/zgjtgb/index.m3u8,http://ngcdn015.cnr.cn/live/zgjtgb/index.m3u8,辽宁交通广播，辽沈大地出行先锋
+rcn_2014,吉林新闻综合广播,吉林,长春市,新闻资讯,FM91.6,http://pic.qtfm.cn/2015/0202/20150202170847551.jpg,http://ngcdn001.cnr.cn/live/zgzs/index.m3u8,http://ngcdn001.cnr.cn/live/zgzs/index.m3u8,吉林广播电视台新闻综合广播
+rcn_2015,吉林交通广播,吉林,长春市,交通出行,FM103.8,http://pic.qtfm.cn/2019/0227/20190227023249.png,http://ngcdn015.cnr.cn/live/zgjtgb/index.m3u8,http://ngcdn015.cnr.cn/live/zgjtgb/index.m3u8,吉林交通广播，吉祥之声
+rcn_2016,黑龙江新闻广播,黑龙江,哈尔滨市,新闻资讯,FM94.6,http://pic.qtfm.cn/2015/0202/20150202170847551.jpg,http://ngcdn001.cnr.cn/live/zgzs/index.m3u8,http://ngcdn001.cnr.cn/live/zgzs/index.m3u8,黑龙江广播电视台新闻广播
+rcn_2017,上海新闻广播,上海,上海市,新闻资讯,FM93.4/AM990,http://pic.qtfm.cn/2015/0202/20150202170847551.jpg,http://lhttp.qingting.fm/live/270/64k.mp3,http://lhttp.qingting.fm/live/270/64k.mp3,上海人民广播电台新闻广播，声音传播力量
+rcn_2018,上海交通广播,上海,上海市,交通出行,FM105.7/AM648,http://pic.qtfm.cn/sso/48/1641437453117_JxQnTn1vv.jpeg,http://lhttp.qingting.fm/live/266/64k.mp3,http://lhttp.qingting.fm/live/266/64k.mp3,中国第一家交通广播，应急广播主力军
+rcn_2019,动感101,上海,上海市,音乐广播,FM101.7,http://pic.qtfm.cn/2014/0909/20140909123511693.jpg,http://lhttp.qingting.fm/live/274/64k.mp3,http://lhttp.qingting.fm/live/274/64k.mp3,上海流行音乐电台，东方风云榜官方广播
+rcn_2020,上海经典947,上海,上海市,音乐广播,FM94.7,http://pic.qtfm.cn/sso/48/1641437907698_k0NNOUP54.jpeg,http://lhttp.qingting.fm/live/267/64k.mp3,http://lhttp.qingting.fm/live/267/64k.mp3,中国内地唯一专业经典音乐广播
+rcn_2021,第一财经广播,上海,上海市,财经商业,FM97.7,http://pic.qtfm.cn/sso/48/1641438475219_mv9SoJP78.jpeg,http://lhttp.qingting.fm/live/276/64k.mp3,http://lhttp.qingting.fm/live/276/64k.mp3,全国最具影响力的专业财经广播
+rcn_2022,江苏新闻广播,江苏,南京市,新闻资讯,FM93.7,http://pic.qtfm.cn/2015/0202/20150202170847551.jpg,http://ngcdn001.cnr.cn/live/zgzs/index.m3u8,http://ngcdn001.cnr.cn/live/zgzs/index.m3u8,江苏省广播电视总台新闻广播
+rcn_2023,江苏交通广播网,江苏,南京市,交通出行,FM101.1,http://pic.qtfm.cn/2019/0227/20190227023249.png,http://ngcdn015.cnr.cn/live/zgjtgb/index.m3u8,http://ngcdn015.cnr.cn/live/zgjtgb/index.m3u8,江苏交广网，全国交通广播标杆
+rcn_2024,浙江之声,浙江,杭州市,新闻资讯,FM88.0/AM810,http://pic.qtfm.cn/2015/0202/20150202170847551.jpg,http://ngcdn001.cnr.cn/live/zgzs/index.m3u8,http://ngcdn001.cnr.cn/live/zgzs/index.m3u8,浙江广播电视集团新闻综合广播，浙江新闻第一声
+rcn_2025,浙江交通之声,浙江,杭州市,交通出行,FM93.0,http://pic.qtfm.cn/2019/0227/20190227023249.png,http://ngcdn015.cnr.cn/live/zgjtgb/index.m3u8,http://ngcdn015.cnr.cn/live/zgjtgb/index.m3u8,FM93 浙江交通之声，中国应急广播浙江之声
+rcn_2026,安徽综合广播,安徽,合肥市,新闻资讯,FM103.6,http://pic.qtfm.cn/2015/0202/20150202170847551.jpg,http://ngcdn001.cnr.cn/live/zgzs/index.m3u8,http://ngcdn001.cnr.cn/live/zgzs/index.m3u8,安徽广播电视台新闻综合广播
+rcn_2027,福建新闻广播,福建,福州市,新闻资讯,FM103.6,http://pic.qtfm.cn/2015/0202/20150202170847551.jpg,http://ngcdn001.cnr.cn/live/zgzs/index.m3u8,http://ngcdn001.cnr.cn/live/zgzs/index.m3u8,福建省广播影视集团新闻广播
+rcn_2028,福建交通广播,福建,福州市,交通出行,FM100.7,http://pic.qtfm.cn/2019/0227/20190227023249.png,http://ngcdn015.cnr.cn/live/zgjtgb/index.m3u8,http://ngcdn015.cnr.cn/live/zgjtgb/index.m3u8,福建交通广播，大八闽出行帮手
+rcn_2029,江西新闻广播,江西,南昌市,新闻资讯,FM104.4,http://pic.qtfm.cn/2015/0202/20150202170847551.jpg,http://ngcdn001.cnr.cn/live/zgzs/index.m3u8,http://ngcdn001.cnr.cn/live/zgzs/index.m3u8,江西广播电视台综合新闻广播
+rcn_2030,山东综合广播,山东,济南市,新闻资讯,FM95.0,http://pic.qtfm.cn/2015/0202/20150202170847551.jpg,http://ngcdn001.cnr.cn/live/zgzs/index.m3u8,http://ngcdn001.cnr.cn/live/zgzs/index.m3u8,山东广播电视台综合广播
+rcn_2031,山东交通广播,山东,济南市,交通出行,FM101.1,http://pic.qtfm.cn/2019/0227/20190227023249.png,http://ngcdn015.cnr.cn/live/zgjtgb/index.m3u8,http://ngcdn015.cnr.cn/live/zgjtgb/index.m3u8,山东交通广播，好客山东，一路相伴
+rcn_2032,河南新闻广播,河南,郑州市,新闻资讯,FM95.4,http://pic.qtfm.cn/2015/0202/20150202170847551.jpg,http://ngcdn001.cnr.cn/live/zgzs/index.m3u8,http://ngcdn001.cnr.cn/live/zgzs/index.m3u8,河南广播电视台新闻综合广播
+rcn_2033,河南交通广播,河南,郑州市,交通出行,FM104.1,http://pic.qtfm.cn/2019/0227/20190227023249.png,http://ngcdn015.cnr.cn/live/zgjtgb/index.m3u8,http://ngcdn015.cnr.cn/live/zgjtgb/index.m3u8,河南交通广播，中原出行动力
+rcn_2034,湖北之声,湖北,武汉市,新闻资讯,FM104.6,http://pic.qtfm.cn/2015/0202/20150202170847551.jpg,http://ngcdn001.cnr.cn/live/zgzs/index.m3u8,http://ngcdn001.cnr.cn/live/zgzs/index.m3u8,湖北广播电视台综合广播
+rcn_2035,湖北交通广播,湖北,武汉市,交通出行,FM107.8,http://pic.qtfm.cn/2019/0227/20190227023249.png,http://ngcdn015.cnr.cn/live/zgjtgb/index.m3u8,http://ngcdn015.cnr.cn/live/zgjtgb/index.m3u8,湖北交通广播，荆楚畅行
+rcn_2036,湖南综合广播,湖南,长沙市,新闻资讯,FM91.0,http://pic.qtfm.cn/2015/0202/20150202170847551.jpg,http://ngcdn001.cnr.cn/live/zgzs/index.m3u8,http://ngcdn001.cnr.cn/live/zgzs/index.m3u8,湖南广播电视台新闻综合广播
+rcn_2037,湖南交通频道,湖南,长沙市,交通出行,FM91.8,http://pic.qtfm.cn/2019/0227/20190227023249.png,http://ngcdn015.cnr.cn/live/zgjtgb/index.m3u8,http://ngcdn015.cnr.cn/live/zgjtgb/index.m3u8,湖南交通频道，湖湘出行第一台
+rcn_2038,广东新闻广播,广东,广州市,新闻资讯,FM91.4,http://pic.qtfm.cn/2015/0202/20150202170847551.jpg,http://lhttp.qingting.fm/live/469/64k.mp3,http://lhttp.qingting.fm/live/469/64k.mp3,广东广播电视台新闻广播
+rcn_2039,广东音乐之声,广东,广州市,音乐广播,FM99.3,http://pic.qtfm.cn/2022/0729/20220729092142.jpeg,http://lhttp.qingting.fm/live/470/64k.mp3,http://lhttp.qingting.fm/live/470/64k.mp3,广东广播电视台音乐之声，华南流行音乐重镇
+rcn_2040,广东交通之声,广东,广州市,交通出行,FM105.2,http://pic.qtfm.cn/2019/0227/20190227023249.png,http://ngcdn015.cnr.cn/live/zgjtgb/index.m3u8,http://ngcdn015.cnr.cn/live/zgjtgb/index.m3u8,广东广播电视台交通之声
+rcn_2041,深圳飞扬971,广东,深圳市,音乐广播,FM97.1,http://pic.qtfm.cn/2014/0909/20140909125130474.jpg,http://ngcdn003.cnr.cn/live/yyzs/index.m3u8,http://ngcdn003.cnr.cn/live/yyzs/index.m3u8,深圳广播电影电视集团音乐频率，声动特区
+rcn_2042,广西新闻广播,广西,南宁市,新闻资讯,FM91.0,http://pic.qtfm.cn/2015/0202/20150202170847551.jpg,http://ngcdn001.cnr.cn/live/zgzs/index.m3u8,http://ngcdn001.cnr.cn/live/zgzs/index.m3u8,广西广播电视台综合广播
+rcn_2043,海南新闻广播,海南,海口市,新闻资讯,FM88.6,http://pic.qtfm.cn/2015/0202/20150202170847551.jpg,http://ngcdn001.cnr.cn/live/zgzs/index.m3u8,http://ngcdn001.cnr.cn/live/zgzs/index.m3u8,海南广播电视总台新闻广播
+rcn_2044,重庆之声,重庆,重庆市,新闻资讯,FM96.8,http://pic.qtfm.cn/2015/0202/20150202170847551.jpg,http://ngcdn001.cnr.cn/live/zgzs/index.m3u8,http://ngcdn001.cnr.cn/live/zgzs/index.m3u8,重庆广播电视集团新闻综合广播
+rcn_2045,重庆音乐广播,重庆,重庆市,音乐广播,FM88.1,http://pic.qtfm.cn/2022/1130/20221130104320.jpeg,http://lhttp.qingting.fm/live/647/64k.mp3,http://lhttp.qingting.fm/live/647/64k.mp3,重庆收听率第一的流行音乐电台
+rcn_2046,四川综合广播,四川,成都市,新闻资讯,FM98.1,http://pic.qtfm.cn/2015/0202/20150202170847551.jpg,http://ngcdn001.cnr.cn/live/zgzs/index.m3u8,http://ngcdn001.cnr.cn/live/zgzs/index.m3u8,四川广播电视台综合广播
+rcn_2047,四川交通广播,四川,成都市,交通出行,FM101.7,http://pic.qtfm.cn/2019/0227/20190227023249.png,http://ngcdn015.cnr.cn/live/zgjtgb/index.m3u8,http://ngcdn015.cnr.cn/live/zgjtgb/index.m3u8,四川交通广播，天府行空
+rcn_2048,贵州综合广播,贵州,贵阳市,新闻资讯,FM94.6,http://pic.qtfm.cn/2015/0202/20150202170847551.jpg,http://ngcdn001.cnr.cn/live/zgzs/index.m3u8,http://ngcdn001.cnr.cn/live/zgzs/index.m3u8,贵州广播电视台新闻广播
+rcn_2049,云南新闻广播,云南,昆明市,新闻资讯,FM105.8,http://pic.qtfm.cn/2015/0202/20150202170847551.jpg,http://ngcdn001.cnr.cn/live/zgzs/index.m3u8,http://ngcdn001.cnr.cn/live/zgzs/index.m3u8,云南广播电视台综合广播
+rcn_2050,西藏汉语综合广播,西藏,拉萨市,新闻资讯,FM93.3,http://pic.qtfm.cn/2015/0202/20150202170847551.jpg,http://ngcdn001.cnr.cn/live/zgzs/index.m3u8,http://ngcdn001.cnr.cn/live/zgzs/index.m3u8,西藏人民广播电台汉语综合广播
+rcn_2051,陕西新闻广播,陕西,西安市,新闻资讯,FM89.6,http://pic.qtfm.cn/2015/0202/20150202170847551.jpg,http://ngcdn001.cnr.cn/live/zgzs/index.m3u8,http://ngcdn001.cnr.cn/live/zgzs/index.m3u8,陕西广电融媒体集团新闻综合广播
+rcn_2052,陕西交通广播,陕西,西安市,交通出行,FM91.6,http://pic.qtfm.cn/2019/0227/20190227023249.png,http://ngcdn015.cnr.cn/live/zgjtgb/index.m3u8,http://ngcdn015.cnr.cn/live/zgjtgb/index.m3u8,陕西交通广播，三秦出行首选
+rcn_2053,甘肃新闻综合广播,甘肃,兰州市,新闻资讯,FM96.0,http://pic.qtfm.cn/2015/0202/20150202170847551.jpg,http://ngcdn001.cnr.cn/live/zgzs/index.m3u8,http://ngcdn001.cnr.cn/live/zgzs/index.m3u8,甘肃省广播电视总台新闻广播
+rcn_2054,青海新闻综合广播,青海,西宁市,新闻资讯,FM98.9,http://pic.qtfm.cn/2015/0202/20150202170847551.jpg,http://ngcdn001.cnr.cn/live/zgzs/index.m3u8,http://ngcdn001.cnr.cn/live/zgzs/index.m3u8,青海广播电视台新闻综合广播
+rcn_2055,宁夏新闻综合广播,宁夏,银川市,新闻资讯,FM89.0,http://pic.qtfm.cn/2015/0202/20150202170847551.jpg,http://ngcdn001.cnr.cn/live/zgzs/index.m3u8,http://ngcdn001.cnr.cn/live/zgzs/index.m3u8,宁夏广播电视台新闻综合广播
+rcn_2056,新疆新闻广播,新疆,乌鲁木齐市,新闻资讯,FM96.1,http://pic.qtfm.cn/2015/0202/20150202170847551.jpg,http://ngcdn001.cnr.cn/live/zgzs/index.m3u8,http://ngcdn001.cnr.cn/live/zgzs/index.m3u8,新疆广播电视台汉语新闻综合广播
+rcn_2057,香港电台第一台,香港,,综合资讯,FM92.6,http://pic.qtfm.cn/sso/198/1606449636209_K8-0Zavn2.png,http://ngcdn008.cnr.cn/live/xgzs/index.m3u8,http://ngcdn008.cnr.cn/live/xgzs/index.m3u8,香港电台第一台 RTHK Radio 1，新闻与时事广播
+rcn_2058,香港电台第二台,香港,,青年音乐,FM94.8,http://pic.qtfm.cn/sso/198/1606449636209_K8-0Zavn2.png,http://ngcdn003.cnr.cn/live/yyzs/index.m3u8,http://ngcdn003.cnr.cn/live/yyzs/index.m3u8,香港电台第二台 RTHK Radio 2，流行文化与青年之声
+rcn_2059,澳门电台中文频道,澳门,,综合资讯,FM100.7,http://pic.qtfm.cn/sso/198/1606449636209_K8-0Zavn2.png,http://ngcdn007.cnr.cn/live/dwqzs/index.m3u8,http://ngcdn007.cnr.cn/live/dwqzs/index.m3u8,澳门广播电视股份有限公司中文广播电台
