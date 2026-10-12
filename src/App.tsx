@@ -5716,6 +5716,33 @@ export default function App() {
                       <p className="text-[10px] text-slate-400">输出完全遵循 xmltv 国际通用规范，支持 Gzip 高级压缩，电台频道 EPG epgId 动态对应，供您的播放器自动拉取显示精确时间轴海报日程。</p>
                     </div>
 
+                    {/* Full Radio Channels JSON API row */}
+                    <div className="p-4 rounded-xl border border-slate-100 bg-slate-50/50 space-y-2">
+                      <div className="flex justify-between items-center text-xs">
+                        <span className="font-bold text-slate-800 flex items-center">
+                          <Database className="w-4 h-4 mr-1.5 text-emerald-600" /> 全量电台数据 JSON 接口 (radio.json)
+                        </span>
+                        <button 
+                          onClick={(e) => downloadApiFile("/api/export/radio.json", "radio.json", e)}
+                          className="text-emerald-600 hover:text-emerald-800 hover:underline flex items-center gap-1 font-bold text-[10px] bg-transparent border-none p-0 cursor-pointer"
+                        >
+                          下载完整 JSON 文件 <Download className="w-3 h-3" />
+                        </button>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <span className="flex-1 bg-white border border-slate-150 p-2.5 rounded-xl font-mono text-[10px] text-slate-600 truncate">
+                          {getFullHostUrl()}/api/export/radio.json
+                        </span>
+                        <button 
+                          onClick={() => copyTextToClipboard(`${getFullHostUrl()}/api/export/radio.json`)}
+                          className="bg-slate-900 hover:bg-slate-800 text-slate-50 p-2.5 rounded-xl transition flex-shrink-0 cursor-pointer"
+                        >
+                          <Copy className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                      <p className="text-[10px] text-slate-400">适配：第三方聚合前端、外部导航站点集成、全网电台数据归档与自动化爬虫二次消费。</p>
+                    </div>
+
                   </div>
                 </div>
 
@@ -6169,23 +6196,8 @@ export default function App() {
                 </div>
 
                 <div className="pt-4 border-t border-slate-800 flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4 w-full">
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4 w-full">
                     <div className="space-y-0.5">
-                      
-                    <div className="space-y-0.5">
-                      <span className="text-[10px] text-slate-500 font-mono uppercase tracking-wider">电台数据 JSON 输出</span>
-                      <p className="text-xs font-mono text-emerald-400 truncate">{getFullHostUrl()}/api/export/radio.json</p>
-                      <button
-                        onClick={() => {
-                          copyTextToClipboard(`${getFullHostUrl()}/api/export/radio.json`);
-                          showFeedback("success", "已复制电台数据输出接口链接");
-                        }}
-                        className="mt-1 bg-slate-100 hover:bg-slate-200 text-slate-600 text-[10px] px-2 py-1 rounded transition w-full text-center"
-                      >
-                        复制接口地址
-                      </button>
-                    </div>
-
                       <span className="text-[10px] text-slate-500 font-mono uppercase tracking-wider">整合输出 XMLTV EPG 接口</span>
                       <p className="text-xs font-mono text-emerald-400 truncate">{getFullHostUrl()}/api/export/epg.xml</p>
                       <button
@@ -6198,22 +6210,8 @@ export default function App() {
                         复制最终聚合 EPG 链接 ❯
                       </button>
                     </div>
-                    <div className="space-y-0.5">
-                      
-                    <div className="space-y-0.5">
-                      <span className="text-[10px] text-slate-500 font-mono uppercase tracking-wider">电台数据 JSON 输出</span>
-                      <p className="text-xs font-mono text-emerald-400 truncate">{getFullHostUrl()}/api/export/radio.json</p>
-                      <button
-                        onClick={() => {
-                          copyTextToClipboard(`${getFullHostUrl()}/api/export/radio.json`);
-                          showFeedback("success", "已复制电台数据输出接口链接");
-                        }}
-                        className="mt-1 bg-slate-100 hover:bg-slate-200 text-slate-600 text-[10px] px-2 py-1 rounded transition w-full text-center"
-                      >
-                        复制接口地址
-                      </button>
-                    </div>
 
+                    <div className="space-y-0.5">
                       <span className="text-[10px] text-slate-500 font-mono uppercase tracking-wider">整合输出 XMLTV EPG.XML.GZ 压缩接口</span>
                       <p className="text-xs font-mono text-emerald-400 truncate">{getFullHostUrl()}/api/export/epg.xml.gz</p>
                       <button
@@ -6224,6 +6222,20 @@ export default function App() {
                         className="mt-1 text-[10px] text-blue-400 hover:text-blue-300 hover:underline font-bold bg-transparent border-0 p-0 text-left outline-none cursor-pointer"
                       >
                         复制 Gzip 压缩 EPG 链接 ❯
+                      </button>
+                    </div>
+
+                    <div className="space-y-0.5">
+                      <span className="text-[10px] text-slate-500 font-mono uppercase tracking-wider">电台数据 JSON 输出接口</span>
+                      <p className="text-xs font-mono text-emerald-400 truncate">{getFullHostUrl()}/api/export/radio.json</p>
+                      <button
+                        onClick={() => {
+                          copyTextToClipboard(`${getFullHostUrl()}/api/export/radio.json`);
+                          showFeedback("success", "已复制电台数据输出接口链接");
+                        }}
+                        className="mt-1 text-[10px] text-emerald-400 hover:text-emerald-300 hover:underline font-bold bg-transparent border-0 p-0 text-left outline-none cursor-pointer"
+                      >
+                        复制电台 JSON 接口链接 ❯
                       </button>
                     </div>
                   </div>
